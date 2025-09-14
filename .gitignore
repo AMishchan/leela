@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+
+# Конфигурация IDE/редакторов
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Файлы системы
+.DS_Store
+Thumbs.db
+
+# Django / SQLite база (если используешь локально)
+db.sqlite3
+*.sqlite3
+
+# Миграции (опционально — если не хочешь хранить их)
+# */migrations/*.py
+# !*/migrations/__init__.py
+
+# Статика и медиа, которые генерируются
+/media/
+staticfiles/
+static/
+*.log
+
+# Файлы окружения
+.env
+*.env
+
+# Кэш pip
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Тестовые отчёты
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
