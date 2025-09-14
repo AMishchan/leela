@@ -27,11 +27,13 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+#Generated token d7545e48afead27c33c62929b820c43316090bcf for user zayander
 
 # Application definition
 
 INSTALLED_APPS = [
     'rest_framework',
+    'rest_framework.authtoken',
     'api',
     'webhooks',
     'games',
@@ -45,8 +47,8 @@ INSTALLED_APPS = [
 ]
 
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [],  # вебхуки не используют cookie/сессию
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
+    "DEFAULT_AUTHENTICATION_CLASSES": [ "rest_framework.authentication.TokenAuthentication",],
+    "DEFAULT_PERMISSION_CLASSES": [ "rest_framework.permissions.IsAuthenticated","rest_framework.permissions.AllowAny"],
 }
 
 MIDDLEWARE = [
