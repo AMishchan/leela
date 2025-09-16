@@ -155,12 +155,21 @@ class Move(models.Model):
     state_snapshot = models.JSONField('Состояние после хода', default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Сырой вебхук (весь JSON как есть)
+    webhook_payload = models.JSONField('Webhook payload', default=dict, blank=True)
+
+    # Telegram meta
+    tg_from_id = models.BigIntegerField('Telegram From ID', null=True, blank=True, db_index=True)
+    tg_message_date = models.DateTimeField('Дата сообщения (UTC)', null=True, blank=True, db_index=True)
+
     class Meta:
         ordering = ('move_number',)
         unique_together = (('game', 'move_number'),)
         indexes = [
             models.Index(fields=['game', 'move_number']),
             models.Index(fields=['-created_at']),
+            models.Index(fields=['tg_from_id']),  # 👈 быстро искать по отправителю
+            models.Index(fields=['tg_message_date']),  # 👈 быстро фильтровать по дате
         ]
 
     def __str__(self):
