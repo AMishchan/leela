@@ -7,5 +7,5 @@ from .views import create_player
 urlpatterns = [
     path("ping", ping),
     path("game/roll", roll_dice),
-path("players", create_player),
+    path("players", create_player),
 ]

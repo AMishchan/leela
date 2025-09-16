@@ -3,5 +3,5 @@ from .views import  telegram_dice_webhook
 
 
 urlpatterns = [
-    path("telegram/webhook/diceResult", telegram_dice_webhook),
+    path("telegram/diceResult", telegram_dice_webhook),
 ]
