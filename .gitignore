@@ -13,7 +13,8 @@ env/
 .idea/
 *.swp
 *.swo
-
+/var/
+/*.log
 # Файлы системы
 .DS_Store
 Thumbs.db

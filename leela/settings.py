@@ -25,11 +25,10 @@ SECRET_KEY = 'django-insecure-^-tq%y$zcivpe_!&fv!r4e=om14x9!x$2ms$p*h8!jklznoct$
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
 #Generated token d7545e48afead27c33c62929b820c43316090bcf for user zayander
 
 # Application definition
+WEBHOOK_DUMP_DIR = BASE_DIR / "var" / "webhooks"
 
 INSTALLED_APPS = [
     'rest_framework',
@@ -123,6 +122,7 @@ USE_I18N = True
 
 USE_TZ = True
 
+ALLOWED_HOSTS = ["142.132.210.43", "localhost", "127.0.0.1", "::1"]
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
