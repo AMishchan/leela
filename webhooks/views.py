@@ -1,13 +1,14 @@
 import json
 from datetime import datetime, timezone as dt_tz
+from pathlib import Path
 
-from django.db import transaction
 from django.http import JsonResponse, HttpResponseNotAllowed
 from django.views.decorators.csrf import csrf_exempt
-from django.utils import timezone
 
+from games.models import Game, Move
 from players.models import Player
-from .models import Game, Move
+
+from django.conf import settings
 
 # Where to dump webhook payloads
 DUMP_DIR = Path(getattr(settings, "WEBHOOK_DUMP_DIR",
