@@ -26,6 +26,7 @@ class Game(models.Model):
     is_active = models.BooleanField('Актуальная', default=True, db_index=True)
 
     current_cell = models.IntegerField('Текущая клетка', default=0)
+    current_six_number = models.IntegerField('Количество выпавших шестерок на данный момент', default=0)
     last_move_number = models.IntegerField('№ последнего хода', default=0)
 
     meta = models.JSONField('Метаданные', default=dict, blank=True)
