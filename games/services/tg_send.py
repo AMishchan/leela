@@ -57,7 +57,7 @@ def send_moves_sequentially(bot_token: str, chat_id: int, moves: List[Dict[str, 
 
         try:
             if img:
-                requests.post(f"{base}/sendPhoto", json={
+                res =requests.post(f"{base}/sendPhoto", json={
                     "chat_id": chat_id,
                     "photo": img,
                     "caption": text,
