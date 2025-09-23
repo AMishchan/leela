@@ -98,6 +98,7 @@ class Game(models.Model):
             meta=meta,
             status=cls.Status.ACTIVE,
             is_active=True,
+            current_six_number=0,
             current_cell=0,
             last_move_number=0,
             expires_at=timezone.now() + timedelta(days=ttl_days),
