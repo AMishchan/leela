@@ -1,12 +1,15 @@
 import json
 from datetime import datetime, timezone as dt_tz
 from pathlib import Path
-
+from threading import Thread
+from django.conf import settings
+from games.services.tg_send import send_moves_sequentially
 from django.http import JsonResponse, HttpResponseNotAllowed
 from django.views.decorators.csrf import csrf_exempt
 
 from games.models import Game, Move
 from players.models import Player
+from games.services.entry import GameEntryManager
 
 from django.conf import settings
 
@@ -14,6 +17,7 @@ from django.conf import settings
 DUMP_DIR = Path(getattr(settings, "WEBHOOK_DUMP_DIR",
                         Path(settings.BASE_DIR) / "var" / "webhooks"))
 DUMP_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def _extract_telegram_meta(payload: dict):
     """
@@ -86,58 +90,68 @@ def telegram_dice_webhook(request):
     if not game:
         game = Game.start_new(player=player, game_type="telegram_dice", game_name="Лила (TG)")
 
-    # --- Идемпотентность по update_id (если он есть) ---
-    if update_id is not None:
-        if Move.objects.filter(game=game, webhook_payload__update_id=update_id).exists():
-            return JsonResponse({"ok": True, "captured": True, "dice_value": dice_value, "dedup": True})
+    manager = GameEntryManager()
+    res = manager.apply_roll(game, rolled=int(dice_value), player_id=player.id)
 
-    # --- Считаем переход ---
-    from_cell = game.current_cell or 0
-    to_cell = from_cell + int(dice_value)
+    # Если серия шестерок продолжается — просто подсказываем бросать дальше.
+    if res.status == "continue":
+        return JsonResponse({
+            "ok": True,
+            "status": "continue",
+            "message": res.message,
+            "six_count": res.six_count,
+        })
 
-    event_type = Move.EventType.NORMAL
-    note = ""
-    state_after = {
-        "update_id": update_id,
-        "message_id": meta["message_id"],
-        "username": tg_username,
-        "applied_rules": [],  # здесь позже можно отмечать сработавшие стрелы/змеи и пр.
-    }
+    # Если серия завершилась — шлём ВСЕ ходы по очереди в TG (в фоне), а вебхуку быстро отвечаем.
+    if res.status == "completed":
+        bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+        if bot_token and res.moves:
+            Thread(
+                target=send_moves_sequentially,
+                args=(bot_token, tg_from_id, res.moves),
+                kwargs={"per_message_delay": 0.6},
+                daemon=True,
+            ).start()
 
-    # --- Пишем ход и обновляем игру атомарно ---
-    with transaction.atomic():
-        if game.expire_if_needed():
-            return JsonResponse({"ok": False, "error": "game_expired"}, status=409)
+        return JsonResponse({
+            "ok": True,
+            "status": "completed",
+            "message": "Серия завершена, отправляем ходы пользователю.",
+            "six_count": res.six_count,  # 0
+            # можно вернуть для диагностики количество готовых к отправке сообщений:
+            "moves_count": len(res.moves),
+        })
 
-        move = Move.objects.create(
-            game=game,
-            move_number=game.last_move_number + 1,
-            rolled=dice_value,
-            from_cell=from_cell,
-            to_cell=to_cell,
-            event_type=event_type,
-            note=note,
-            state_snapshot=state_after,
-            webhook_payload=payload,     # полный входящий JSON
-            tg_from_id=tg_from_id,       # отдельное поле
-            tg_message_date=tg_dt,       # отдельное поле (UTC)
-        )
+    # Обычный одиночный ход (без серии): отправим один месседж тоже в фоне.
+    if res.status == "single":
+        bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+        if bot_token and res.moves:
+            Thread(
+                target=send_moves_sequentially,
+                args=(bot_token, tg_from_id, res.moves),
+                kwargs={"per_message_delay": 0.0},  # один ход — задержка не нужна
+                daemon=True,
+            ).start()
 
-        game.last_move_number = move.move_number
-        game.current_cell = to_cell
-        game.save(update_fields=["last_move_number", "current_cell", "updated_at"])
+        return JsonResponse({
+            "ok": True,
+            "status": "single",
+            "message": res.message,
+            "moves_count": len(res.moves),  # 1
+        })
 
+    # ignored
     return JsonResponse({
         "ok": True,
-        "captured": True,
-        "dice_value": dice_value,
-        "move_id": move.id,
-        "from_cell": from_cell,
-        "to_cell": to_cell,
+        "status": "ignored",
+        "message": res.message,
+        "six_count": res.six_count,
     })
+
 
 # helpers внутри этого же файла (или вынеси в helpers/player_lookup.py)
 from django.db import transaction
+
 
 def _player_defaults_from_meta(tg_id: int | None, tg_username: str | None) -> dict:
     """Собираем безопасные defaults для Player.get_or_create."""

@@ -136,3 +136,11 @@ MEDIA_ROOT = BASE_DIR / "media"
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# Где лежат картинки клеток на диске
+BOARD_CELL_IMAGE_ROOT = BASE_DIR / "games" / "data/cards"
+# Какой URL-префикс будет у этих картинок (отдавай их как статику/медиа)
+BOARD_CELL_IMAGE_URL  = "/media/board_images"   # или "/static/board", как у тебя принято
+SITE_BASE_URL = "https://142.132.210.43"
+TELEGRAM_BOT_TOKEN = "8148401559:AAHz2_mRbVUThQZjO3HBvbcgPaEsoKlAEiU"
+PROTECTED_MEDIA_ROOT = BASE_DIR / "var" / "protected"
+PROTECTED_CARDS_DIR  = PROTECTED_MEDIA_ROOT / "cards"

@@ -148,6 +148,7 @@ class Move(models.Model):
     id = models.BigAutoField(primary_key=True)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='moves', db_index=True)
     move_number = models.PositiveIntegerField('№ хода')
+    on_hold = models.BooleanField('Остаться после 6', default=False)
     rolled = models.PositiveSmallIntegerField('Бросок', default=0)
     from_cell = models.IntegerField('С клетки', default=0)
     to_cell = models.IntegerField('На клетку', default=0)
@@ -155,6 +156,8 @@ class Move(models.Model):
     note = models.TextField('Заметка', blank=True)
     state_snapshot = models.JSONField('Состояние после хода', default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    image_url = models.CharField(max_length=255, blank=True, default="")  # относительный путь без домена
+
 
     # Сырой вебхук (весь JSON как есть)
     webhook_payload = models.JSONField('Webhook payload', default=dict, blank=True)
