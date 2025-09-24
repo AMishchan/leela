@@ -131,6 +131,7 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "static_collected"   # отдельная папка для collectstatic
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+PROTECTED_MEDIA_ROOT= BASE_DIR / "var" / "protected"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

@@ -18,7 +18,7 @@ from games.services.images import build_abs_image_url  # твоя функция
 SITE_BASE_URL = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
 
 # Где лежат файлы картинок (относительные пути начнутся с "cards/...")
-MEDIA_ROOT = getattr(settings, "MEDIA_ROOT", "")  # например, "/var/protected"
+MEDIA_ROOT = getattr(settings, "PROTECTED_MEDIA_ROOT", "")
 
 
 # ---------- Утилиты ----------
@@ -89,26 +89,6 @@ def render_move_text(mv: Dict[str, Any]) -> str:
     ).strip()
 
 
-# ---------- Telegram отправка ----------
-
-def tg_send_photo_url(bot_token: str, chat_id: int, url: str, caption: Optional[str], timeout: float = 15.0) -> requests.Response:
-    base = f"https://api.telegram.org/bot{bot_token}"
-    return requests.post(
-        f"{base}/sendPhoto",
-        json={"chat_id": chat_id, "photo": url, "caption": caption},
-        timeout=timeout,
-    )
-
-def tg_send_photo_file(bot_token: str, chat_id: int, abs_path: str, caption: Optional[str] = None, timeout: float = 15.0) -> requests.Response:
-    url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
-    with open(abs_path, "rb") as f:
-        files = {"photo": (Path(abs_path).name, f, "image/jpeg")}
-        data = {"chat_id": chat_id}
-        if caption:
-            data["caption"] = caption
-        r = requests.post(url, data=data, files=files, timeout=timeout)
-    return r
-
 
 # ---------- Основная функция ----------
 
@@ -142,18 +122,16 @@ def send_moves_sequentially(
         abs_path = _abs_path_from_rel(rel_img) if rel_img else None
 
         try:
-            # --- 1) Пытаемся отправить по URL ---
-            if url and _is_good_image_url(url):
-                r = tg_send_photo_url(bot_token, chat_id, url, caption)
-                if r.status_code == 200:
-                    sent += 1
-                    time.sleep(per_message_delay)
-                    continue  # к следующему ходу
-                # если Telegram вернул ошибку — падаем в отправку файла
-
             # --- 2) Фолбэк: отправка как файла (из приватного MEDIA_ROOT) ---
-            if abs_path and os.path.isfile(abs_path):
-                r = tg_send_photo_file(bot_token, chat_id, abs_path, caption)
+            if abs_path:
+                base = f"https://api.telegram.org/bot{bot_token}"
+                with open(abs_path,
+                          "rb") as f:
+                    r=requests.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                        data={"chat_id": chat_id, "caption": ''},
+                        files={"photo": f}
+                    )
                 if r.status_code == 200:
                     sent += 1
                     time.sleep(per_message_delay)
