@@ -1,18 +1,30 @@
 # games/services/tg_send.py
 from __future__ import annotations
+
+import os
 import time
 import requests
 from typing import Dict, Any, List, Optional
 from urllib.parse import urljoin
+from pathlib import Path
+
 from django.conf import settings
+
 from games.services.board import get_cell
-from games.services.images import build_abs_image_url
+from games.services.images import build_abs_image_url  # твоя функция для абсолютного URL
 
 # Если в settings.BOARD_CELL_IMAGE_URL относительный ("/media/..."),
 # нужен SITE_BASE_URL (например, "https://your.domain").
 SITE_BASE_URL = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
 
+# Где лежат файлы картинок (относительные пути начнутся с "cards/...")
+MEDIA_ROOT = getattr(settings, "MEDIA_ROOT", "")  # например, "/var/protected"
+
+
+# ---------- Утилиты ----------
+
 def _abs_url(u: Optional[str]) -> Optional[str]:
+    """Построить абсолютный URL, если строка относительная."""
     if not u:
         return None
     if u.startswith("http://") or u.startswith("https://"):
@@ -20,6 +32,35 @@ def _abs_url(u: Optional[str]) -> Optional[str]:
     if not SITE_BASE_URL:
         return None
     return urljoin(SITE_BASE_URL + "/", u.lstrip("/"))
+
+def _abs_path_from_rel(rel_path: Optional[str]) -> Optional[str]:
+    """Построить абсолютный путь к файлу из MEDIA_ROOT и относительного пути (напр., 'cards/22-....jpg')."""
+    if not rel_path or not MEDIA_ROOT:
+        return None
+    # нормализуем
+    rel_norm = rel_path.lstrip("/").replace("/", os.sep)
+    return os.path.join(MEDIA_ROOT, rel_norm)
+
+def _is_good_image_url(url: str, timeout: float = 8.0) -> bool:
+    """Быстрая проверка, что по URL действительно лежит картинка, и она не пустая."""
+    try:
+        r = requests.head(url, allow_redirects=True, timeout=timeout)
+        if r.status_code != 200:
+            return False
+        ct = (r.headers.get("Content-Type") or "").lower()
+        cl = int(r.headers.get("Content-Length") or 0)
+        return ct.startswith("image/") and cl > 0
+    except Exception:
+        return False
+
+def _truncate_caption(caption: Optional[str]) -> Optional[str]:
+    """Подрезаем подпись под лимит Telegram ~1024 символа."""
+    if caption and len(caption) > 1024:
+        return caption[:1021] + "..."
+    return caption
+
+
+# ---------- Рендер текста хода ----------
 
 def render_move_text(mv: Dict[str, Any]) -> str:
     """
@@ -47,28 +88,99 @@ def render_move_text(mv: Dict[str, Any]) -> str:
         f"{meaning}{rules_block}"
     ).strip()
 
-def send_moves_sequentially(bot_token: str, chat_id: int, moves: List[Dict[str, Any]], per_message_delay: float = 0.6) -> int:
+
+# ---------- Telegram отправка ----------
+
+def tg_send_photo_url(bot_token: str, chat_id: int, url: str, caption: Optional[str], timeout: float = 15.0) -> requests.Response:
     base = f"https://api.telegram.org/bot{bot_token}"
+    return requests.post(
+        f"{base}/sendPhoto",
+        json={"chat_id": chat_id, "photo": url, "caption": caption},
+        timeout=timeout,
+    )
+
+def tg_send_photo_file(bot_token: str, chat_id: int, abs_path: str, caption: Optional[str] = None, timeout: float = 15.0) -> requests.Response:
+    url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+    with open(abs_path, "rb") as f:
+        files = {"photo": (Path(abs_path).name, f, "image/jpeg")}
+        data = {"chat_id": chat_id}
+        if caption:
+            data["caption"] = caption
+        r = requests.post(url, data=data, files=files, timeout=timeout)
+    return r
+
+
+# ---------- Основная функция ----------
+
+def send_moves_sequentially(
+    bot_token: str,
+    chat_id: int,
+    moves: List[Dict[str, Any]],
+    per_message_delay: float = 0.6,
+) -> int:
+    """
+    Отправляет ходы по очереди.
+    Если есть картинка:
+      1) пробуем отправить по URL (photo=<URL>) — только если URL реально отдает image/* и не пустой;
+      2) если URL не валиден или TG вернул ошибку, отправляем как файл (multipart) из MEDIA_ROOT;
+    Если картинки нет — отправляем текст.
+    """
     sent = 0
+    base = f"https://api.telegram.org/bot{bot_token}"
+
     for mv in moves:
-        text = render_move_text(mv)
-        # mv["image_url"] — относительный путь; собираем абсолютный
-        img = build_abs_image_url(mv.get("image_url"))
+        caption = _truncate_caption(render_move_text(mv))
+
+        # ожидаем относительный путь (например, 'cards/22-Plan-dkharmy.jpg')
+        rel_img = mv.get("image_url") or mv.get("image")  # поддерживаем оба поля
+        url = None
+        if rel_img:
+            # если у тебя есть своя функция для абсолютного URL — используем её;
+            # иначе резервно построим через SITE_BASE_URL
+            url = build_abs_image_url(rel_img) or _abs_url(rel_img)
+
+        abs_path = _abs_path_from_rel(rel_img) if rel_img else None
 
         try:
-            if img:
-                res =requests.post(f"{base}/sendPhoto", json={
-                    "chat_id": chat_id,
-                    "photo": img,
-                    "caption": text,
-                }, timeout=8)
-            else:
-                requests.post(f"{base}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": text,
-                }, timeout=8)
+            # --- 1) Пытаемся отправить по URL ---
+            if url and _is_good_image_url(url):
+                r = tg_send_photo_url(bot_token, chat_id, url, caption)
+                if r.status_code == 200:
+                    sent += 1
+                    time.sleep(per_message_delay)
+                    continue  # к следующему ходу
+                # если Telegram вернул ошибку — падаем в отправку файла
+
+            # --- 2) Фолбэк: отправка как файла (из приватного MEDIA_ROOT) ---
+            if abs_path and os.path.isfile(abs_path):
+                r = tg_send_photo_file(bot_token, chat_id, abs_path, caption)
+                if r.status_code == 200:
+                    sent += 1
+                    time.sleep(per_message_delay)
+                    continue
+                # если и файл не ушёл — отправим текст
+
+            # --- 3) Нет картинки или всё упало — шлём текст ---
+            requests.post(
+                f"{base}/sendMessage",
+                json={"chat_id": chat_id, "text": caption or ""},
+                timeout=8,
+            )
             sent += 1
             time.sleep(per_message_delay)
+
         except Exception:
-            continue
+            # Любая ошибка — хотя бы текст
+            try:
+                requests.post(
+                    f"{base}/sendMessage",
+                    json={"chat_id": chat_id, "text": caption or ""},
+                    timeout=8,
+                )
+                sent += 1
+                time.sleep(per_message_delay)
+            except Exception:
+                # совсем упало — пропускаем
+                continue
+
     return sent

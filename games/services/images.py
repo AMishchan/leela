@@ -1,16 +1,9 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional
-from django.conf import settings
 from urllib.parse import urlparse, quote
-
-# опционально: если делаешь подписанные ссылки через securemedia
-try:
-    from games.services.secure_links import make_card_url  # def make_card_url(player_id, game_id, rel_path) -> str
-    _HAS_SECURE = True
-except Exception:
-    make_card_url = None  # type: ignore
-    _HAS_SECURE = False
+from urllib.parse import urljoin
+from django.conf import settings
 
 def image_url_from_board_name(
     image_name: Optional[str],
@@ -42,15 +35,6 @@ def image_url_from_board_name(
         site = str(getattr(settings, "SITE_BASE_URL", "")).rstrip("/")
         return f"{site}{name}" if site else name
 
-    # относительный путь/имя
-    if _HAS_SECURE and player_id and game_id:
-        # считаем, что name — относительный путь от PROTECTED_MEDIA_ROOT
-        # если это просто имя файла, поместим его в подкаталог PROTECTED_CARDS_DIR (если задан)
-        root = Path(getattr(settings, "PROTECTED_MEDIA_ROOT", ""))
-        cards_dir = Path(getattr(settings, "PROTECTED_CARDS_DIR", root / "cards"))
-        rel_path = name if "/" in name else f"{Path(cards_dir).name}/{name}"
-        # генерим подписанную ссылку
-        return make_card_url(player_id=int(player_id), game_id=game_id, rel_path=rel_path)
 
     # публичная раздача (static/media): склеим с BOARD_CELL_IMAGE_URL
     base = str(getattr(settings, "BOARD_CELL_IMAGE_URL", "")).rstrip("/")
@@ -87,32 +71,10 @@ def normalize_image_relpath(image_name: Optional[str]) -> str:
 
     return rel
 
-def build_abs_image_url(image_rel: Optional[str]) -> Optional[str]:
-    if not image_rel:
+
+
+def build_abs_image_url(rel_path: str | None) -> str | None:
+    if not rel_path:
         return None
-
-    s = str(image_rel).strip()
-    if not s:
-        return None
-
-    # 1) Уже абсолютный URL → отдать как есть
-    if s.startswith("http://") or s.startswith("https://"):
-        return s
-
-    # 2) Нормализуем относительный путь и процитируем (пробелы, кириллица и т.п.)
-    rel = s.lstrip("/")
-    rel = quote(rel, safe="/:@")  # не кодируем разделители/подписи
-
-    base = str(getattr(settings, "BOARD_CELL_IMAGE_URL", "")).rstrip("/")
-    site = str(getattr(settings, "SITE_BASE_URL", "")).rstrip("/")
-
-    # base может быть абсолютным CDN-ом
-    if base.startswith("http://") or base.startswith("https://"):
-        return f"{base}/{rel}"
-
-    # base как путь '/media/board_images' → нужен домен
-    if base.startswith("/"):
-        return f"{site}{base}/{rel}" if site else None
-
-    # на крайний случай (не рекомендую держать относительный base)
-    return f"{site}/{base}/{rel}".rstrip("/") if site and base else (f"{site}/{rel}" if site else None)
+    rel = rel_path.lstrip('/')  # media/board_images/41-...
+    return urljoin(settings.SITE_BASE_URL.rstrip('/') + '/', 'cards/' + rel)

@@ -16,10 +16,18 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("api/v1/", include("api.urls")),
     path("webhooks/", include("webhooks.urls")),
-    path("", include("securemedia.urls")),
 ]
+if settings.DEBUG:
+    # /cards/... -> /home/alex/PycharmProjects/Leela/leela/var/protected/...
+    urlpatterns += static(
+        '/cards/',
+        document_root='/home/alex/PycharmProjects/Leela/leela/var/protected/'
+    )
