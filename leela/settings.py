@@ -143,5 +143,4 @@ BOARD_CELL_IMAGE_ROOT = BASE_DIR / "games" / "data/cards"
 BOARD_CELL_IMAGE_URL  = "/media/board_images"   # или "/static/board", как у тебя принято
 SITE_BASE_URL = "http://127.0.0.1:8001"
 TELEGRAM_BOT_TOKEN = "8148401559:AAHz2_mRbVUThQZjO3HBvbcgPaEsoKlAEiU"
-PROTECTED_MEDIA_ROOT = BASE_DIR / "var" / "protected"
 PROTECTED_CARDS_DIR  = PROTECTED_MEDIA_ROOT / "cards"

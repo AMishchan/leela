@@ -25,9 +25,3 @@ urlpatterns = [
     path("api/v1/", include("api.urls")),
     path("webhooks/", include("webhooks.urls")),
 ]
-if settings.DEBUG:
-    # /cards/... -> /home/alex/PycharmProjects/Leela/leela/var/protected/...
-    urlpatterns += static(
-        '/cards/',
-        document_root='/home/alex/PycharmProjects/Leela/leela/var/protected/'
-    )

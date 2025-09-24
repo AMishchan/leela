@@ -1,27 +1,13 @@
-# games/services/entry.py
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
-from games.services.board import resolve_chain, get_cell_image_name
-from games.services.images import normalize_image_relpath
+
 from django.db import transaction
 from django.db.models import Max
 
 from games.models import Game, Move
-from games.services.board import resolve_chain
-# имя картинки берём прямо из board.json
-try:
-    from games.services.board import get_cell_image_name  # -> str | None
-except Exception:
-    def get_cell_image_name(_: int) -> Optional[str]:
-        return None
-
-# из имени/пути строим URL (публичный или защищённый)
-try:
-    from games.services.images import image_url_from_board_name  # (image_name, player_id=None, game_id=None) -> str | None
-except Exception:
-    def image_url_from_board_name(_: Optional[str], *, player_id: Optional[int] = None, game_id: Optional[int] = None) -> Optional[str]:
-        return None
+from games.services.board import resolve_chain, get_cell_image_name
+from games.services.images import normalize_image_relpath, image_url_from_board_name
 
 
 @dataclass
@@ -31,8 +17,9 @@ class EntryStepResult:
     six_count: int
     moves: List[Dict[str, Any]] = field(default_factory=list)
 
+    # Оставил для возможной внешней совместимости
     @property
-    def final_cell(self) -> Optional[int]:  # для обратной совместимости со старым кодом
+    def final_cell(self) -> Optional[int]:
         if not self.moves:
             return None
         try:
@@ -43,6 +30,9 @@ class EntryStepResult:
 
 class GameEntryManager:
     """Серии шестерок + обычные ходы. Считывает/пишет current_six_number и ВСЕГДА отдаёт массив moves."""
+
+    # Можно кешировать NORMAL, чтобы не вызывать getattr многократно
+    EVENT_NORMAL = getattr(getattr(Move, "EventType", object), "NORMAL", "NORMAL")
 
     # ---------- utils ----------
     def _next_move_number(self, game: Game) -> int:
@@ -85,17 +75,16 @@ class GameEntryManager:
         at_start = (not has_non_hold) and (current_cell == 0)
 
         # A) старт: нужна 6
-
         if at_start and not series_active:
             if rolled != 6:
                 return EntryStepResult(status="ignored", message="Для входа нужна шестерка.", six_count=0, moves=[])
             move_no = self._next_move_number(game)
             final_cell, chain = resolve_chain(6)
-            img_rel = normalize_image_relpath(get_cell_image_name(6))
+            img_rel = normalize_image_relpath(get_cell_image_name(final_cell))
             Move.objects.create(
                 game=game, move_number=move_no, rolled=6,
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=getattr(getattr(Move, "EventType", object), "NORMAL", "NORMAL"),
+                event_type=self.EVENT_NORMAL,
                 note="entry: first six",
                 state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
                 image_url=img_rel,
@@ -119,7 +108,7 @@ class GameEntryManager:
             Move.objects.create(
                 game=game, move_number=move_no, rolled=6,
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=getattr(getattr(Move, "EventType", object), "NORMAL", "NORMAL"),
+                event_type=self.EVENT_NORMAL,
                 note=("entry: six #{}".format(six_count + 1) if at_start else "series: six"),
                 state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
                 image_url=img_rel,
@@ -143,7 +132,7 @@ class GameEntryManager:
             Move.objects.create(
                 game=game, move_number=move_no, rolled=6,
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=getattr(getattr(Move, "EventType", object), "NORMAL", "NORMAL"),
+                event_type=self.EVENT_NORMAL,
                 note="series: first six",
                 state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
                 image_url=img_rel,
@@ -167,7 +156,7 @@ class GameEntryManager:
             Move.objects.create(
                 game=game, move_number=move_no, rolled=int(rolled),
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=getattr(getattr(Move, "EventType", object), "NORMAL", "NORMAL"),
+                event_type=self.EVENT_NORMAL,
                 note=("entry: final non-six" if at_start else "series: final non-six"),
                 state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
                 image_url=img_rel,
@@ -201,7 +190,7 @@ class GameEntryManager:
             mv = Move.objects.create(
                 game=game, move_number=move_no, rolled=int(rolled),
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=getattr(getattr(Move, "EventType", object), "NORMAL", "NORMAL"),
+                event_type=self.EVENT_NORMAL,
                 note="single move",
                 state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
                 image_url=img_rel,
@@ -228,7 +217,3 @@ class GameEntryManager:
             six_count=int(getattr(game, "current_six_number", 0) or 0),
             moves=[],
         )
-
-    # обратная совместимость
-    def apply_entry_roll(self, game: Game, rolled: int, player_id: Optional[int] = None) -> EntryStepResult:
-        return self.apply_roll(game, rolled, player_id=player_id)

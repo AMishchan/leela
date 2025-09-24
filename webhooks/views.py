@@ -2,11 +2,9 @@ import json
 from datetime import datetime, timezone as dt_tz
 from pathlib import Path
 from threading import Thread
-from django.conf import settings
 from games.services.tg_send import send_moves_sequentially
 from django.http import JsonResponse, HttpResponseNotAllowed
 from django.views.decorators.csrf import csrf_exempt
-
 from games.models import Game, Move
 from players.models import Player
 from games.services.entry import GameEntryManager

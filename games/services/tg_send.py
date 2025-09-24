@@ -1,20 +1,12 @@
-# games/services/tg_send.py
 from __future__ import annotations
 
 import os
 import time
 import requests
 from typing import Dict, Any, List, Optional
-from urllib.parse import urljoin
-from pathlib import Path
-
 from django.conf import settings
-
 from games.services.board import get_cell
-from games.services.images import build_abs_image_url  # твоя функция для абсолютного URL
 
-# Если в settings.BOARD_CELL_IMAGE_URL относительный ("/media/..."),
-# нужен SITE_BASE_URL (например, "https://your.domain").
 SITE_BASE_URL = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
 
 # Где лежат файлы картинок (относительные пути начнутся с "cards/...")
@@ -22,16 +14,6 @@ MEDIA_ROOT = getattr(settings, "PROTECTED_MEDIA_ROOT", "")
 
 
 # ---------- Утилиты ----------
-
-def _abs_url(u: Optional[str]) -> Optional[str]:
-    """Построить абсолютный URL, если строка относительная."""
-    if not u:
-        return None
-    if u.startswith("http://") or u.startswith("https://"):
-        return u
-    if not SITE_BASE_URL:
-        return None
-    return urljoin(SITE_BASE_URL + "/", u.lstrip("/"))
 
 def _abs_path_from_rel(rel_path: Optional[str]) -> Optional[str]:
     """Построить абсолютный путь к файлу из MEDIA_ROOT и относительного пути (напр., 'cards/22-....jpg')."""
@@ -111,26 +93,19 @@ def send_moves_sequentially(
     for mv in moves:
         caption = _truncate_caption(render_move_text(mv))
 
-        # ожидаем относительный путь (например, 'cards/22-Plan-dkharmy.jpg')
-        rel_img = mv.get("image_url") or mv.get("image")  # поддерживаем оба поля
-        url = None
-        if rel_img:
-            # если у тебя есть своя функция для абсолютного URL — используем её;
-            # иначе резервно построим через SITE_BASE_URL
-            url = build_abs_image_url(rel_img) or _abs_url(rel_img)
-
+        rel_img = mv.get("image_url") or mv.get("image")
         abs_path = _abs_path_from_rel(rel_img) if rel_img else None
 
         try:
             # --- 2) Фолбэк: отправка как файла (из приватного MEDIA_ROOT) ---
             if abs_path:
-                base = f"https://api.telegram.org/bot{bot_token}"
                 with open(abs_path,
                           "rb") as f:
                     r=requests.post(
-                        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                        f"{base}/sendPhoto",
                         data={"chat_id": chat_id, "caption": ''},
-                        files={"photo": f}
+                        files={"photo": f},
+                        timeout=5
                     )
                 if r.status_code == 200:
                     sent += 1
