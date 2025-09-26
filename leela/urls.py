@@ -16,12 +16,12 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.conf import settings
-from django.conf.urls.static import static
+from games.api_start import start_game_endpoint
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("api/v1/", include("api.urls")),
     path("webhooks/", include("webhooks.urls")),
+    path("api/start-game/", start_game_endpoint, name="start-game"),
 ]

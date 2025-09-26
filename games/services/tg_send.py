@@ -1,16 +1,22 @@
 from __future__ import annotations
 
-import os
 import time
-import requests
 from typing import Dict, Any, List, Optional
 from django.conf import settings
 from games.services.board import get_cell
+import os
+import requests
+from typing import Any, Dict, Optional
+
 
 SITE_BASE_URL = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
 
 # Где лежат файлы картинок (относительные пути начнутся с "cards/...")
 MEDIA_ROOT = getattr(settings, "PROTECTED_MEDIA_ROOT", "")
+TG_API = "https://api.telegram.org/bot{token}/{method}"
+DEFAULT_TIMEOUT = 10
+# Официально поддерживаемые эмодзи для sendDice:
+ALLOWED_DICE_EMOJIS = {"🎲", "🎯", "🏀", "⚽", "🎳", "🎰"}
 
 
 # ---------- Утилиты ----------
@@ -137,3 +143,59 @@ def send_moves_sequentially(
                 continue
 
     return sent
+
+
+def send_dice(
+    token: Optional[str],
+    chat_id: int | str,
+    *,
+    emoji: str = "🎲",
+    disable_notification: bool = False,
+    reply_to_message_id: Optional[int] = None,
+    allow_sending_without_reply: bool = True,
+    message_thread_id: Optional[int] = None,  # для тем в супергруппах
+    timeout: int = DEFAULT_TIMEOUT,
+) -> Dict[str, Any]:
+    """
+    Отправляет бросок кубика в чат. Возвращает JSON-ответ Telegram (dict).
+    Если токен не передан, берёт TELEGRAM_BOT_TOKEN из окружения.
+    """
+    token = token or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return {"ok": False, "error": "bot_token_not_set"}
+
+    if emoji not in ALLOWED_DICE_EMOJIS:
+        emoji = "🎲"
+
+    payload: Dict[str, Any] = {
+        "chat_id": chat_id,
+        "emoji": emoji,
+        "disable_notification": disable_notification,
+        "allow_sending_without_reply": allow_sending_without_reply,
+    }
+    if reply_to_message_id is not None:
+        payload["reply_to_message_id"] = reply_to_message_id
+    if message_thread_id is not None:
+        payload["message_thread_id"] = message_thread_id
+
+    try:
+        r = requests.post(
+            TG_API.format(token=token, method="sendDice"),
+            json=payload,
+            timeout=timeout,
+        )
+        # Бывает, что Telegram вернёт HTML в ошибках — защитимся
+        try:
+            data = r.json()
+        except Exception:
+            return {"ok": False, "status_code": r.status_code, "text": r.text}
+        return data
+    except requests.RequestException as e:
+        return {"ok": False, "error": "request_exception", "detail": str(e)}
+
+def extract_dice_value(resp: Dict[str, Any]) -> Optional[int]:
+    """Удобный хелпер: достаёт выпавшее значение 1..6 из ответа sendDice."""
+    try:
+        return (resp.get("result") or {}).get("dice", {}).get("value")
+    except Exception:
+        return None
