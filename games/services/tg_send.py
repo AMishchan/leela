@@ -8,7 +8,6 @@ import os
 import requests
 from typing import Any, Dict, Optional
 
-
 SITE_BASE_URL = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
 
 # Где лежат файлы картинок (относительные пути начнутся с "cards/...")
@@ -29,6 +28,7 @@ def _abs_path_from_rel(rel_path: Optional[str]) -> Optional[str]:
     rel_norm = rel_path.lstrip("/").replace("/", os.sep)
     return os.path.join(MEDIA_ROOT, rel_norm)
 
+
 def _is_good_image_url(url: str, timeout: float = 8.0) -> bool:
     """Быстрая проверка, что по URL действительно лежит картинка, и она не пустая."""
     try:
@@ -40,6 +40,7 @@ def _is_good_image_url(url: str, timeout: float = 8.0) -> bool:
         return ct.startswith("image/") and cl > 0
     except Exception:
         return False
+
 
 def _truncate_caption(caption: Optional[str]) -> Optional[str]:
     """Подрезаем подпись под лимит Telegram ~1024 символа."""
@@ -77,14 +78,13 @@ def render_move_text(mv: Dict[str, Any]) -> str:
     ).strip()
 
 
-
 # ---------- Основная функция ----------
 
 def send_moves_sequentially(
-    bot_token: str,
-    chat_id: int,
-    moves: List[Dict[str, Any]],
-    per_message_delay: float = 0.6,
+        bot_token: str,
+        chat_id: int,
+        moves: List[Dict[str, Any]],
+        per_message_delay: float = 0.6,
 ) -> int:
     """
     Отправляет ходы по очереди.
@@ -102,12 +102,15 @@ def send_moves_sequentially(
         rel_img = mv.get("image_url") or mv.get("image")
         abs_path = _abs_path_from_rel(rel_img) if rel_img else None
 
+        import time
+        import requests
+
+        # ... внутри цикла по ходам ...
         try:
             # --- 2) Фолбэк: отправка как файла (из приватного MEDIA_ROOT) ---
             if abs_path:
-                with open(abs_path,
-                          "rb") as f:
-                    r=requests.post(
+                with open(abs_path, "rb") as f:
+                    r = requests.post(
                         f"{base}/sendPhoto",
                         data={"chat_id": chat_id, "caption": ''},
                         files={"photo": f},
@@ -115,46 +118,47 @@ def send_moves_sequentially(
                     )
                 if r.status_code == 200:
                     sent += 1
-                    time.sleep(per_message_delay)
-                    continue
-                # если и файл не ушёл — отправим текст
+                    continue  # пауза будет в finally
 
             # --- 3) Нет картинки или всё упало — шлём текст ---
-            requests.post(
+            r = requests.post(
                 f"{base}/sendMessage",
                 json={"chat_id": chat_id, "text": caption or ""},
                 timeout=8,
             )
-            sent += 1
-            time.sleep(per_message_delay)
+            if r.status_code == 200:
+                sent += 1
 
         except Exception:
             # Любая ошибка — хотя бы текст
             try:
-                requests.post(
+                r = requests.post(
                     f"{base}/sendMessage",
                     json={"chat_id": chat_id, "text": caption or ""},
                     timeout=8,
                 )
-                sent += 1
-                time.sleep(per_message_delay)
+                if r.status_code == 200:
+                    sent += 1
             except Exception:
                 # совсем упало — пропускаем
-                continue
+                pass
+        finally:
+            # <-- ЕДИНСТВЕННАЯ пауза на каждую итерацию
+            time.sleep(per_message_delay)  # поставь per_message_delay = 5.0
 
     return sent
 
 
 def send_dice(
-    token: Optional[str],
-    chat_id: int | str,
-    *,
-    emoji: str = "🎲",
-    disable_notification: bool = False,
-    reply_to_message_id: Optional[int] = None,
-    allow_sending_without_reply: bool = True,
-    message_thread_id: Optional[int] = None,  # для тем в супергруппах
-    timeout: int = DEFAULT_TIMEOUT,
+        token: Optional[str],
+        chat_id: int | str,
+        *,
+        emoji: str = "🎲",
+        disable_notification: bool = False,
+        reply_to_message_id: Optional[int] = None,
+        allow_sending_without_reply: bool = True,
+        message_thread_id: Optional[int] = None,  # для тем в супергруппах
+        timeout: int = DEFAULT_TIMEOUT,
 ) -> Dict[str, Any]:
     """
     Отправляет бросок кубика в чат. Возвращает JSON-ответ Telegram (dict).
@@ -192,6 +196,7 @@ def send_dice(
         return data
     except requests.RequestException as e:
         return {"ok": False, "error": "request_exception", "detail": str(e)}
+
 
 def extract_dice_value(resp: Dict[str, Any]) -> Optional[int]:
     """Удобный хелпер: достаёт выпавшее значение 1..6 из ответа sendDice."""
