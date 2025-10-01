@@ -84,7 +84,7 @@ def send_moves_sequentially(
         bot_token: str,
         chat_id: int,
         moves: List[Dict[str, Any]],
-        per_message_delay: float = 0.6,
+        per_message_delay: float = 3.6,
 ) -> int:
     """
     Отправляет ходы по очереди.
@@ -97,6 +97,7 @@ def send_moves_sequentially(
     base = f"https://api.telegram.org/bot{bot_token}"
 
     for mv in moves:
+
         caption = _truncate_caption(render_move_text(mv))
 
         rel_img = mv.get("image_url") or mv.get("image")
@@ -104,7 +105,7 @@ def send_moves_sequentially(
 
         import time
         import requests
-
+        time.sleep(4.0)
         # ... внутри цикла по ходам ...
         try:
             # --- 2) Фолбэк: отправка как файла (из приватного MEDIA_ROOT) ---
@@ -142,9 +143,6 @@ def send_moves_sequentially(
             except Exception:
                 # совсем упало — пропускаем
                 pass
-        finally:
-            # <-- ЕДИНСТВЕННАЯ пауза на каждую итерацию
-            time.sleep(per_message_delay)  # поставь per_message_delay = 5.0
 
     return sent
 
