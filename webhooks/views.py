@@ -86,22 +86,24 @@ def telegram_dice_webhook(request):
     tg_dt = meta["message_date"]
     dice_value = meta["dice_value"]
     update_id = meta["update_id"]
-    chat_id = meta.get("chat_id") or tg_from_id  # NEW: предпочтительно chat_id
 
     # --- Находим/создаём игрока ---
     player = _upsert_player_from_telegram(tg_from_id, tg_username)
 
-    # --- Пытаемся возобновить активную игру ---
-    game = Game.resume_last(player=player)  # важно: этот метод должен БРАТЬ только активные игры
+    # --- CHANGED: пытаемся возобновить активную игру ДО проверки dice_value ---
+    game = Game.resume_last(player=player)
 
-    bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
-
-    # NEW: если активной игры нет (или вообще нет игр) — стартуем новую и СРАЗУ кидаем DICE
+    # Если активной игры нет — создаём новую и кидаем ПЕРВЫЙ кубик от бота
     if not game:
         game = Game.start_new(player=player, game_type="telegram_dice", game_name="Лила (TG)")
+        bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
         if bot_token:
-            Thread(target=send_dice, args=(bot_token, chat_id),
-                   kwargs={"emoji": "🎲"}, daemon=True).start()
+            Thread(
+                target=send_dice,   # импорт из games.services.send
+                args=(bot_token, tg_from_id),
+                kwargs={"emoji": "🎲"},
+                daemon=True,
+            ).start()
         return JsonResponse({
             "ok": True,
             "status": "new_game_started",
@@ -110,51 +112,48 @@ def telegram_dice_webhook(request):
             "dice_sent": bool(bot_token),
         })
 
-    # Если пришёл апдейт БЕЗ кубика — для активной игры просто подтверждаем приём
+    # --- CHANGED: если это не кубик — просто подтверждаем приём и выходим
     if dice_value is None:
         return JsonResponse({"ok": True, "captured": True, "dice_value": None})
 
-    # --- Есть активная игра и значение кубика — играем ход ---
+    # --- Есть активная игра и пришёл кубик — играем ход ---
     manager = GameEntryManager()
     res = manager.apply_roll(game, rolled=int(dice_value), player_id=player.id)
 
-    # Серия шестерок продолжается — карточек нет, сразу кидаем новый кубик
+    bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+
     if res.status == "continue":
-        if bot_token:
-            Thread(target=send_dice, args=(bot_token, chat_id),
-                   kwargs={"emoji": "🎲"}, daemon=True).start()
+        # REMOVED: больше НЕ шлём sendDice автоматически внутри активной игры
         return JsonResponse({
             "ok": True,
             "status": "continue",
             "message": res.message,
             "six_count": res.six_count,
-            "dice_sent": bool(bot_token),
         })
 
-    # Серия завершилась — отправляем все ходы, затем новый кубик
     if res.status == "completed":
+        # отправим ВСЕ ходы по очереди (без авто-кубика после)
         if bot_token and res.moves:
             Thread(
-                target=_send_moves_then_dice,
-                args=(bot_token, chat_id, res.moves),
-                kwargs={"per_message_delay": 0.6, "emoji": "🎲"},
+                target=send_moves_sequentially,
+                args=(bot_token, tg_from_id, res.moves),
+                kwargs={"per_message_delay": 0.6},
                 daemon=True,
             ).start()
         return JsonResponse({
             "ok": True,
             "status": "completed",
             "message": "Серия завершена, отправляем ходы пользователю.",
+            "six_count": res.six_count,
             "moves_count": len(res.moves),
-            "dice_scheduled": bool(bot_token and res.moves),
         })
 
-    # Обычный одиночный ход — отправим карточку, затем новый кубик
     if res.status == "single":
         if bot_token and res.moves:
             Thread(
-                target=_send_moves_then_dice,
-                args=(bot_token, chat_id, res.moves),
-                kwargs={"per_message_delay": 0.0, "emoji": "🎲"},
+                target=send_moves_sequentially,
+                args=(bot_token, tg_from_id, res.moves),
+                kwargs={"per_message_delay": 0.0},
                 daemon=True,
             ).start()
         return JsonResponse({
@@ -162,30 +161,24 @@ def telegram_dice_webhook(request):
             "status": "single",
             "message": res.message,
             "moves_count": len(res.moves),
-            "dice_scheduled": bool(bot_token and res.moves),
         })
 
-    # Если игнор (например, старт без шестерки) — просто кинем новый кубик, чтобы не подвисало
     if res.status == "ignored":
-        if bot_token:
-            Thread(target=send_dice, args=(bot_token, chat_id),
-                   kwargs={"emoji": "🎲"}, daemon=True).start()
+        # REMOVED: больше НЕ шлём sendDice автоматически на ignored
         return JsonResponse({
             "ok": True,
             "status": "ignored",
             "message": res.message,
             "six_count": res.six_count,
-            "dice_sent": bool(bot_token),
         })
 
-    # finished и прочие — завершаем без авто-кубика
+    # finished и прочие — без доп. действий
     return JsonResponse({
         "ok": True,
         "status": res.status,
         "message": res.message,
         "six_count": res.six_count,
     })
-
 
 
 # helpers внутри этого же файла (или вынеси в helpers/player_lookup.py)
