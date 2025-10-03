@@ -180,8 +180,45 @@ def telegram_dice_webhook(request):
             Thread(target=send_dice, args=(bot_token, chat_id), kwargs={"emoji": "🎲"}, daemon=True).start()
         return JsonResponse({"ok": True, "status": "new_game_started", "game_id": str(game.id), "dice_sent": bool(bot_token)})
 
-    # Если это НЕ кубик и не реплай — просто подтвердим
+    # Если это НЕ кубик и не реплай — проверим, не ждём ли ответ по прежнему ходу
     if dice_value is None:
+        bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+        pending = Move.objects.filter(
+            game=game, on_hold=False, player_answer__isnull=True
+        ).order_by("move_number").first()
+
+        if pending and bot_token:
+            # 1) Сообщение в чат, чтобы было понятно, почему бросок/сообщение не принимается
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "text": (f"Нужно ответить на предыдущую карточку — ход #{pending.move_number} "
+                                 f"(клетка {pending.to_cell}). Пожалуйста, напишите ответ."),
+                    },
+                    timeout=8,
+                )
+            except Exception:
+                pass
+
+            # 2) ForceReply-запрос (перезапросим даже если уже слали)
+            prompt = (f"Ваш ответ по ходу #{pending.move_number} "
+                      f"(клетка {pending.to_cell}). Напишите, что вы почувствовали/поняли.")
+            resp = send_quiz(bot_token, chat_id, prompt_text=prompt)
+            msg_id = (resp.get("result") or {}).get("message_id")
+            if msg_id:
+                pending.answer_prompt_msg_id = int(msg_id)
+                pending.save(update_fields=["answer_prompt_msg_id"])
+
+            return JsonResponse({
+                "ok": True,
+                "status": "awaiting_answer",
+                "message": "Требуется ответ на предыдущий ход.",
+                "pending_move_id": pending.id,
+            })
+
+        # нет блокировок — просто зафиксируем апдейт
         return JsonResponse({"ok": True, "captured": True, "dice_value": None})
 
     # Блок: есть ли незакрытый ответ?
@@ -247,6 +284,22 @@ def telegram_dice_webhook(request):
                 daemon=True,
             ).start()
         return JsonResponse({"ok": True, "status": "single", "message": res.message, "moves_count": len(res.moves)})
+
+    if res.status == "finished":
+        if bot_token and res.moves:
+            Thread(
+                target=send_moves_sequentially,  # просто отправим финальные карточки, без ForceReply
+                args=(bot_token, chat_id, res.moves),
+                kwargs={"per_message_delay": 0.6},
+                daemon=True,
+            ).start()
+        return JsonResponse({
+            "ok": True,
+            "status": "finished",
+            "message": res.message,
+            "moves_count": len(res.moves),
+        })
+
 
     if res.status == "ignored":
         return JsonResponse({"ok": True, "status": "ignored", "message": res.message, "six_count": res.six_count})
