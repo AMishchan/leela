@@ -105,7 +105,7 @@ def send_moves_sequentially(
 
         import time
         import requests
-        time.sleep(0.2)
+        time.sleep(2.2)
         # ... внутри цикла по ходам ...
         try:
             # --- 2) Фолбэк: отправка как файла (из приватного MEDIA_ROOT) ---
