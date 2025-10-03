@@ -210,7 +210,23 @@ def telegram_dice_webhook(request):
     bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
 
     if res.status == "continue":
-        return JsonResponse({"ok": True, "status": "continue", "message": res.message, "six_count": res.six_count})
+        bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+        if bot_token:
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={"chat_id": tg_from_id, "text": f"{res.message} 🎲"},
+                    timeout=8,
+                )
+            except Exception:
+                pass
+
+        return JsonResponse({
+            "ok": True,
+            "status": "continue",
+            "message": res.message,
+            "six_count": res.six_count,
+        })
 
     if res.status == "completed":
         if bot_token and res.moves:

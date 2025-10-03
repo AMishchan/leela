@@ -53,6 +53,26 @@ class GameEntryManager:
         ("snakeTo", "ladderTo"),
     )
 
+    def _six_continue_text_ru(six_count: int) -> str:
+        def ru_plural(n: int, one: str, few: str, many: str) -> str:
+            n = abs(n)
+            if 11 <= (n % 100) <= 14:
+                return many
+            last = n % 10
+            if last == 1:
+                return one
+            if 2 <= last <= 4:
+                return few
+            return many
+
+        form = ru_plural(six_count, "шестёрку", "шестёрки", "шестёрок")
+        return (
+            f"Отлично! Вы накопили {six_count} {form}. "
+            "Бросайте кубик ещё раз. "
+            "Как только выпадет число, отличное от 6, "
+            "я отправлю все накопленные ходы по порядку."
+        )
+
     # ---------- utils ----------
     def _next_move_number(self, game: Game) -> int:
         last_no = getattr(game, "last_move_number", None)
@@ -297,7 +317,12 @@ class GameEntryManager:
             if hit_exit:
                 return self._finish_game_and_release(game, player_id=player_id)
 
-            return EntryStepResult(status="continue", message="Шестерка! Бросьте кубик ещё раз.", six_count=game.current_six_number, moves=[])
+            return EntryStepResult(
+                status="continue",
+                message=self._six_continue_text(game.current_six_number),
+                six_count=game.current_six_number,
+                moves=[],
+            )
 
         # B) серия активна и снова 6 — копим
         if series_active and rolled == 6:
@@ -325,7 +350,12 @@ class GameEntryManager:
             if hit_exit:
                 return self._finish_game_and_release(game, player_id=player_id)
 
-            return EntryStepResult(status="continue", message="Шестерка! Бросьте кубик ещё раз.", six_count=game.current_six_number, moves=[])
+            return EntryStepResult(
+                status="continue",
+                message=self._six_continue_text(game.current_six_number),
+                six_count=game.current_six_number,
+                moves=[],
+            )
 
         # C) в игре выпала 6 — старт серии
         if (not series_active) and (rolled == 6) and (has_non_hold or current_cell > 0 or has_moves_any):
@@ -353,7 +383,12 @@ class GameEntryManager:
             if hit_exit:
                 return self._finish_game_and_release(game, player_id=player_id)
 
-            return EntryStepResult(status="continue", message="Шестерка! Бросьте кубик ещё раз.", six_count=game.current_six_number, moves=[])
+            return EntryStepResult(
+                status="continue",
+                message=self._six_continue_text(game.current_six_number),
+                six_count=game.current_six_number,
+                moves=[],
+            )
 
         # D) серия активна и НЕ 6 — финал серии: снимаем on_hold и отдаём все ходы
         if series_active and rolled != 6:
