@@ -6,6 +6,12 @@ from django.urls import reverse
 
 from .models import Game, Move
 
+from django.contrib import admin
+
+admin.site.site_header = "Лила — админка"
+admin.site.site_title  = "Лила | Админ"
+admin.site.index_title = "Управление игрой"
+admin.site.site_url    = "/"  # куда ведёт «View site»
 
 # ---------- индикатор-точка (зелёная/красная) ----------
 def _dot(ok: bool) -> str:
