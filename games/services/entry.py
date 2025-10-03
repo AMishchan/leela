@@ -276,12 +276,13 @@ class GameEntryManager:
             final_cell, chain, hit_exit = self._walk_n_steps(0, 6)
             img_rel = normalize_image_relpath(get_cell_image_name(final_cell))
 
+
             Move.objects.create(
                 game=game, move_number=move_no, rolled=6,
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=self.EVENT_NORMAL,
+                event_type=self._event_from_chain(chain),
                 note="entry: first six",
-                state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
+                state_snapshot={"applied_rules": self._rules_payload(chain)},
                 image_url=img_rel,
                 on_hold=True,
             )
@@ -307,9 +308,9 @@ class GameEntryManager:
             Move.objects.create(
                 game=game, move_number=move_no, rolled=6,
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=self.EVENT_NORMAL,
+                event_type=self._event_from_chain(chain),
                 note=("entry: six #{}".format(six_count + 1) if at_start else "series: six"),
-                state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
+                state_snapshot={"applied_rules": self._rules_payload(chain)},
                 image_url=img_rel,
                 on_hold=True,
             )
@@ -335,9 +336,9 @@ class GameEntryManager:
             Move.objects.create(
                 game=game, move_number=move_no, rolled=6,
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=self.EVENT_NORMAL,
+                event_type=self._event_from_chain(chain),
                 note="series: first six",
-                state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
+                state_snapshot={"applied_rules": self._rules_payload(chain)},
                 image_url=img_rel,
                 on_hold=True,
             )
@@ -363,9 +364,9 @@ class GameEntryManager:
             Move.objects.create(
                 game=game, move_number=move_no, rolled=int(rolled),
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=self.EVENT_NORMAL,
+                event_type=self._event_from_chain(chain),
                 note=("entry: final non-six" if at_start else "series: final non-six"),
-                state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
+                state_snapshot={"applied_rules": self._rules_payload(chain)},
                 image_url=img_rel,
                 on_hold=True,
             )
@@ -408,9 +409,9 @@ class GameEntryManager:
             mv = Move.objects.create(
                 game=game, move_number=move_no, rolled=int(rolled),
                 from_cell=current_cell, to_cell=final_cell,
-                event_type=self.EVENT_NORMAL,
+                event_type=self._event_from_chain(chain),
                 note="single move",
-                state_snapshot={"applied_rules": [{"from": a, "to": b} for a, b in chain]},
+                state_snapshot={"applied_rules": self._rules_payload(chain)},
                 image_url=img_rel,
                 on_hold=False,
             )
@@ -528,3 +529,37 @@ class GameEntryManager:
                 except Exception:
                     # крайний случай — просто не падаем
                     pass
+
+    # --- event helpers ---
+    def _et(self, name: str):
+        """Безопасно вернуть константу из Move.EventType, иначе — строку."""
+        ET = getattr(Move, "EventType", None)
+        return getattr(ET, name, name) if ET else name
+
+    def _event_from_chain(self, chain: list[list[int]] | list[tuple[int,int]] | None):
+        """
+        По последнему срабатыванию определяем тип: LADDER (вверх) или SNAKE (вниз).
+        Если срабатываний нет — NORMAL.
+        """
+        if not chain:
+            return self.EVENT_NORMAL
+        a, b = map(int, chain[-1])  # последнее правило
+        if b > a:
+            return self._et("LADDER")
+        if b < a:
+            return self._et("SNAKE")
+        return self.EVENT_NORMAL
+
+    def _rules_payload(self, chain: list[list[int]] | list[tuple[int,int]] | None):
+        """Сериализация применённых правил в state_snapshot.applied_rules."""
+        if not chain:
+            return []
+        out = []
+        for a, b in chain:
+            a = int(a); b = int(b)
+            out.append({
+                "from": a,
+                "to": b,
+                "type": "ladder" if b > a else ("snake" if b < a else "neutral"),
+            })
+        return out

@@ -1,14 +1,22 @@
 from django.contrib import admin
-
-# Register your models here.
-from django.contrib import admin
-from .models import Game, Move
 from django.utils.html import format_html
 from django.utils.text import Truncator
 from django import forms
 from django.urls import reverse
 
+from .models import Game, Move
 
+
+# ---------- индикатор-точка (зелёная/красная) ----------
+def _dot(ok: bool) -> str:
+    color = "#22c55e" if ok else "#ef4444"   # green / red
+    return format_html(
+        '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{};"></span>',
+        color
+    )
+
+
+# ---------- inline ходов в карточке игры ----------
 class MoveInlineForm(forms.ModelForm):
     class Meta:
         model = Move
@@ -24,26 +32,35 @@ class MoveInline(admin.TabularInline):
     extra = 0
     ordering = ("move_number",)
 
-    # какие поля показывать в таблице ходов игры
+    # порядок колонок: ссылка, №, бросок, индикатор ответа, с/на, событие, индикатор on_hold, ответ
     fields = (
-        "move_link",        # ссылка на форму редактирования хода
-        "move_number", "rolled", "from_cell", "to_cell", "event_type",
-        "player_answer",    # показываем реальный текст ответа (редактируемый)
-        "on_hold",
+        "move_link",
+        "move_number",
+        "rolled",
+        "answered_dot",     # ← точка вместо чекбокса «Ответ?»
+        "from_cell",
+        "to_cell",
+        "event_type",
+        "on_hold_dot",      # ← точка вместо чекбокса «Остаться после 6»
+        "player_answer",    # текст ответа (редактируемый по желанию)
     )
-    readonly_fields = ("move_link",)
+    readonly_fields = ("move_link", "answered_dot", "on_hold_dot")
+
     @admin.display(description="Ход")
     def move_link(self, obj: Move):
         url = reverse("admin:games_move_change", args=[obj.id])
         return format_html('<a href="{}">#{} открыть</a>', url, obj.move_number)
 
-    @admin.display(description="Ответ игрока")
-    def player_answer_short(self, obj: Move):
-        if not obj.player_answer:
-            return format_html('<span style="color:#999;">—</span>')
-        # обрежем до 120 символов, сохранив читаемость
-        return Truncator(obj.player_answer).chars(120)
+    @admin.display(description="Ответ?")
+    def answered_dot(self, obj: Move):
+        return _dot(bool(obj.player_answer))
 
+    @admin.display(description="Остаться после 6")
+    def on_hold_dot(self, obj: Move):
+        return _dot(bool(getattr(obj, "on_hold", False)))
+
+
+# ---------- карточка игры ----------
 @admin.register(Game)
 class GameAdmin(admin.ModelAdmin):
     list_display = ('id', 'player', 'game_type', 'game_name', 'status', 'is_active',
@@ -53,18 +70,41 @@ class GameAdmin(admin.ModelAdmin):
     readonly_fields = ('started_at', 'updated_at', 'finished_at', 'last_move_number')
     inlines = [MoveInline]
 
+
+# ---------- список/форма хода ----------
 @admin.register(Move)
 class MoveAdmin(admin.ModelAdmin):
-    list_display = ("link", "game", "move_number", "rolled", "from_cell", "to_cell", "event_type", "answered")
+    # в списке показываем точки вместо чекбоксов
+    list_display = (
+        "link", "game", "move_number", "rolled",
+        "answered_dot",          # индикатор ответа
+        "from_cell", "to_cell", "event_type",
+        "on_hold_dot",           # индикатор on_hold
+    )
     list_select_related = ("game",)
     search_fields = ("game__id", "player_answer", "note")
     list_filter = (("player_answer", admin.EmptyFieldListFilter), "event_type")
+
+    # форма изменения хода: убираем реальный on_hold, показываем только индикатор
+    fields = (
+        "game", "move_number", "rolled",
+        "from_cell", "to_cell", "event_type",
+        "note", "state_snapshot", "image_url",
+        "player_answer", "player_answer_at",
+        "answered_dot", "on_hold_dot",
+    )
+    readonly_fields = ("answered_dot", "on_hold_dot")
+    exclude = ("on_hold",)  # <-- реальное чекбокс-поле скрываем, чтобы нельзя было менять руками
 
     @admin.display(description="Открыть")
     def link(self, obj: Move):
         url = reverse("admin:games_move_change", args=[obj.id])
         return format_html('<a href="{}">#{}</a>', url, obj.move_number)
 
-    @admin.display(boolean=True, description="Есть ответ?")
-    def answered(self, obj: Move):
-        return bool(obj.player_answer)
+    @admin.display(description="Ответ?")
+    def answered_dot(self, obj: Move):
+        return _dot(bool(obj.player_answer))
+
+    @admin.display(description="Остаться после 6")
+    def on_hold_dot(self, obj: Move):
+        return _dot(bool(getattr(obj, "on_hold", False)))
