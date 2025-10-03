@@ -105,7 +105,7 @@ def send_moves_sequentially(
 
         import time
         import requests
-        time.sleep(4.0)
+        time.sleep(0.2)
         # ... внутри цикла по ходам ...
         try:
             # --- 2) Фолбэк: отправка как файла (из приватного MEDIA_ROOT) ---
@@ -202,3 +202,32 @@ def extract_dice_value(resp: Dict[str, Any]) -> Optional[int]:
         return (resp.get("result") or {}).get("dice", {}).get("value")
     except Exception:
         return None
+
+def send_quiz(
+    token: Optional[str],
+    chat_id: int | str,
+    *,
+    prompt_text: str,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> Dict[str, Any]:
+    """
+    Просим игрока ответить: отправляем сообщение с ForceReply.
+    Игрок отвечает прямо в чат, их next-message придёт как reply_to_message.
+    """
+    token = token or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return {"ok": False, "error": "bot_token_not_set"}
+
+    payload = {
+        "chat_id": chat_id,
+        "text": prompt_text,
+        "reply_markup": {"force_reply": True, "input_field_placeholder": "Напишите ответ…"},
+    }
+    try:
+        r = requests.post(TG_API.format(token=token, method="sendMessage"), json=payload, timeout=timeout)
+        try:
+            return r.json()
+        except Exception:
+            return {"ok": False, "status_code": r.status_code, "text": r.text}
+    except requests.RequestException as e:
+        return {"ok": False, "error": "request_exception", "detail": str(e)}

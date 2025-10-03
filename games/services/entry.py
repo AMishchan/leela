@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
+from django.utils import timezone
 
 from django.db import transaction
 from django.db.models import Max
@@ -8,7 +9,6 @@ from django.db.models import Max
 from games.models import Game, Move
 from games.services.board import resolve_chain, get_cell_image_name
 from games.services.images import normalize_image_relpath, image_url_from_board_name
-
 
 @dataclass
 class EntryStepResult:
@@ -239,13 +239,12 @@ class GameEntryManager:
             game.save(update_fields=["current_six_number", "status"])
 
     def _finish_game_and_release(self, game: Game, player_id: Optional[int] = None) -> EntryStepResult:
-        """
-        Снимаем hold со всех накопленных ходов и помечаем игру завершённой/неактивной.
-        В ответ возвращаем все накопленные ходы (последний — на 68, с картинкой 68).
-        """
         qs = Move.objects.select_for_update().filter(game=game, on_hold=True).order_by("move_number")
         released_list = list(qs)
         qs.update(on_hold=False)
+
+        # NEW: зафиксировать завершение в БД (с полным списком финальных ходов)
+        self._persist_finished_record(game, moves=released_list, reason="exit_68", player_id=player_id)
 
         self._mark_finished_nonactive(game)
 
@@ -383,7 +382,8 @@ class GameEntryManager:
             qs.update(on_hold=False)
 
             if final_cell == self.EXIT_CELL or hit_exit:
-                # ← используем единый хелпер завершения
+                # NEW: снапшот завершающей серии
+                self._persist_finished_record(game, moves=released_list, reason="exit_68", player_id=player_id)
                 self._mark_finished_nonactive(game)
                 return EntryStepResult(
                     status="finished",
@@ -422,7 +422,8 @@ class GameEntryManager:
                 game.save(update_fields=["current_cell"])
 
             if final_cell == self.EXIT_CELL or hit_exit:
-                # ← используем единый хелпер завершения
+                # NEW: снапшот одиночного финишного хода
+                self._persist_finished_record(game, moves=[mv], reason="exit_68", player_id=player_id)
                 self._mark_finished_nonactive(game)
                 return EntryStepResult(
                     status="finished",
@@ -445,3 +446,85 @@ class GameEntryManager:
             six_count=int(getattr(game, "current_six_number", 0) or 0),
             moves=[],
         )
+
+    # --- внутри класса GameEntryManager ---
+
+    def _build_finish_payload(self, game: Game, moves: list[Move], *, reason: str, player_id: Optional[int]) -> dict:
+        """Готовим консистентный снапшот завершения партии."""
+        try:
+            total_moves = Move.objects.filter(game=game, on_hold=False).count()
+        except Exception:
+            total_moves = len(moves)
+
+        return {
+            "game_id": getattr(game, "id", None),
+            "player_id": player_id,
+            "finished_at": timezone.now().isoformat(),
+            "finished_reason": reason,  # например: "exit_68"
+            "final_cell": int(getattr(game, "current_cell", 0) or 0),
+            "total_moves": int(total_moves),
+            "moves": [
+                {
+                    "id": mv.id,
+                    "move_number": mv.move_number,
+                    "rolled": mv.rolled,
+                    "from_cell": mv.from_cell,
+                    "to_cell": mv.to_cell,
+                    "note": mv.note,
+                    "event_type": str(getattr(mv, "event_type", "")),
+                    "on_hold": getattr(mv, "on_hold", False),
+                } for mv in moves
+            ],
+        }
+
+    def _persist_finished_record(self, game: Game, *, moves: list[Move], reason: str,
+                                 player_id: Optional[int] = None) -> None:
+        """
+        Пишем факт завершения партии в БД.
+        1) Если есть модель CompletedGame — создаём запись там (best effort).
+        2) Иначе положим снапшот в JSON-поле игры, если найдём подходящее.
+        3) Дополнительно проставим finished_at / finished_reason, если такие поля у Game существуют.
+        """
+        payload = self._build_finish_payload(game, moves, reason=reason, player_id=player_id)
+
+        # 1) Пытаемся создать запись в CompletedGame (если модель есть)
+        try:
+            from games.models import CompletedGame  # type: ignore
+            try:
+                CompletedGame.objects.create(
+                    game=game if "game" in {f.name for f in CompletedGame._meta.fields} else None,
+                    game_id=getattr(game, "id", None),
+                    player_id=player_id,
+                    finished_at=timezone.now(),
+                    finished_reason=reason,
+                    payload=payload if "payload" in {f.name for f in CompletedGame._meta.fields} else None,
+                )
+            except Exception:
+                # Если поля отличаются — попробуем минимальный набор
+                CompletedGame.objects.create(
+                    game_id=getattr(game, "id", None),
+                    finished_at=timezone.now(),
+                    finished_reason=reason,
+                )
+        except Exception:
+            # 2) Нет модели — попробуем сохранить снапшот в самом Game
+            updated_fields = []
+            for json_field_name in ("result_payload", "final_payload", "results"):
+                if hasattr(game, json_field_name):
+                    setattr(game, json_field_name, payload)
+                    updated_fields.append(json_field_name)
+
+            # 3) Отдельные поля на самой игре, если они есть
+            if hasattr(game, "finished_at"):
+                game.finished_at = timezone.now()
+                updated_fields.append("finished_at")
+            if hasattr(game, "finished_reason"):
+                game.finished_reason = reason
+                updated_fields.append("finished_reason")
+
+            if updated_fields:
+                try:
+                    game.save(update_fields=list(set(updated_fields)))
+                except Exception:
+                    # крайний случай — просто не падаем
+                    pass

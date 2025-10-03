@@ -3,21 +3,81 @@ from datetime import datetime, timezone as dt_tz
 from pathlib import Path
 from threading import Thread
 from games.services.tg_send import send_moves_sequentially
-from django.http import JsonResponse, HttpResponseNotAllowed
-from django.views.decorators.csrf import csrf_exempt
-from games.models import Game, Move
 from players.models import Player
 from games.services.entry import GameEntryManager
 from games.services.tg_send import send_dice  # импорт
-
-
+from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse, HttpResponseNotAllowed
+from games.models import Move, Game
+from games.services.tg_send import send_quiz
+from django.utils import timezone
 from django.conf import settings
+from django.db import transaction
+from games.services.board import get_cell_image_name
+from games.services.images import image_url_from_board_name
 
 # Where to dump webhook payloads
 DUMP_DIR = Path(getattr(settings, "WEBHOOK_DUMP_DIR",
                         Path(settings.BASE_DIR) / "var" / "webhooks"))
 DUMP_DIR.mkdir(parents=True, exist_ok=True)
 
+def _send_one_move_and_quiz(bot_token: str, chat_id: int | str, move_dict: dict, *, delay: float = 0.6):
+    """
+    Отправляет ОДНУ карточку хода, затем ForceReply по этому же ходу,
+    сохраняет answer_prompt_msg_id в Move.
+    """
+    try:
+        # 1) карточка
+        send_moves_sequentially(bot_token, chat_id, [move_dict], per_message_delay=delay)
+    finally:
+        # 2) запрос ответа (ForceReply)
+        try:
+            move_id = move_dict.get("id")
+            to_cell = move_dict.get("to_cell")
+            rolled = move_dict.get("rolled")
+            prompt = f"Ваш ответ по ходу #{move_dict.get('move_number')} (бросок {rolled}, клетка {to_cell}). Напишите, что вы почувствовали/поняли."
+
+            resp = send_quiz(bot_token, chat_id, prompt_text=prompt)
+            msg_id = (resp.get("result") or {}).get("message_id")
+            if msg_id and move_id:
+                mv = Move.objects.filter(id=move_id).first()
+                if mv:
+                    mv.answer_prompt_msg_id = int(msg_id)
+                    mv.save(update_fields=["answer_prompt_msg_id"])
+        except Exception:
+            pass
+
+def _send_moves_then_quiz(bot_token: str, chat_id: int | str, moves: list[dict], *, per_message_delay: float = 0.6):
+    """
+    1) Отправляем все карточки ходов.
+    2) Для последнего хода просим ответ (ForceReply).
+    3) Сохраняем message_id запроса в Move.answer_prompt_msg_id.
+    """
+    try:
+        send_moves_sequentially(bot_token, chat_id, moves, per_message_delay=per_message_delay)
+    finally:
+        try:
+            if not moves:
+                return
+            last = moves[-1]
+            move_id = last.get("id")
+            # текст-подсказка можно сформировать из клетки/события
+            to_cell = last.get("to_cell")
+            rolled = last.get("rolled")
+            prompt = f"Ваш ответ по ходу #{last.get('move_number')} (бросок {rolled}, клетка {to_cell}). Напишите, что вы почувствовали/поняли."
+
+            resp = send_quiz(bot_token, chat_id, prompt_text=prompt)
+            msg_id = (resp.get("result") or {}).get("message_id")
+            if msg_id and move_id:
+                from games.models import Move
+                try:
+                    mv = Move.objects.get(id=move_id)
+                    mv.answer_prompt_msg_id = int(msg_id)
+                    mv.save(update_fields=["answer_prompt_msg_id"])
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 def _extract_telegram_meta(payload: dict):
     """
@@ -90,7 +150,7 @@ def telegram_dice_webhook(request):
     # --- Находим/создаём игрока ---
     player = _upsert_player_from_telegram(tg_from_id, tg_username)
 
-    # --- CHANGED: пытаемся возобновить активную игру ДО проверки dice_value ---
+    # --- Пытаемся возобновить активную игру ДО проверки dice_value ---
     game = Game.resume_last(player=player)
 
     # Если активной игры нет — создаём новую и кидаем ПЕРВЫЙ кубик от бота
@@ -112,18 +172,63 @@ def telegram_dice_webhook(request):
             "dice_sent": bool(bot_token),
         })
 
-    # --- CHANGED: если это не кубик — просто подтверждаем приём и выходим
+    # --- ЕСЛИ ЭТО НЕ КУБИК: сначала проверяем, не ждём ли мы ответа по какому-то ходу ---
     if dice_value is None:
+        bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+        pending = Move.objects.filter(
+            game=game, on_hold=False, player_answer__isnull=True
+        ).order_by("move_number").first()  # ВАЖНО: самый ранний незакрытый ход
+
+        if pending:
+            # Переотправим форму (ForceReply), если нет активного запроса
+            if bot_token and not pending.answer_prompt_msg_id:
+                prompt = (f"Требуется ответ по ходу #{pending.move_number} "
+                          f"(клетка {pending.to_cell}). Напишите, что вы почувствовали/поняли.")
+                resp = send_quiz(bot_token, tg_from_id, prompt_text=prompt)
+                msg_id = (resp.get("result") or {}).get("message_id")
+                if msg_id:
+                    pending.answer_prompt_msg_id = int(msg_id)
+                    pending.save(update_fields=["answer_prompt_msg_id"])
+
+            return JsonResponse({
+                "ok": True,
+                "status": "awaiting_answer",
+                "message": "Пожалуйста, ответьте на предыдущий ход перед следующим броском.",
+                "pending_move_id": pending.id,
+            })
+
+        # Ничего не ждём — просто подтверждаем приём не-кубика
         return JsonResponse({"ok": True, "captured": True, "dice_value": None})
+
+    # --- ПРИШЁЛ КУБИК: перед выполнением хода убедимся, что нет незакрытых ответов ---
+    bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+    pending = Move.objects.filter(
+        game=game, on_hold=False, player_answer__isnull=True
+    ).order_by("move_number").first()  # ВАЖНО: самый ранний
+
+    if pending:
+        if bot_token and not pending.answer_prompt_msg_id:
+            prompt = (f"Требуется ответ по ходу #{pending.move_number} "
+                      f"(клетка {pending.to_cell}). Напишите, что вы почувствовали/поняли.")
+            resp = send_quiz(bot_token, tg_from_id, prompt_text=prompt)
+            msg_id = (resp.get("result") or {}).get("message_id")
+            if msg_id:
+                pending.answer_prompt_msg_id = int(msg_id)
+                pending.save(update_fields=["answer_prompt_msg_id"])
+
+        return JsonResponse({
+            "ok": True,
+            "status": "awaiting_answer",
+            "message": "Пожалуйста, ответьте на предыдущий ход перед следующим броском.",
+            "pending_move_id": pending.id,
+        })
 
     # --- Есть активная игра и пришёл кубик — играем ход ---
     manager = GameEntryManager()
     res = manager.apply_roll(game, rolled=int(dice_value), player_id=player.id)
 
-    bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
-
     if res.status == "continue":
-        # REMOVED: больше НЕ шлём sendDice автоматически внутри активной игры
+        # НЕ шлём sendDice автоматически внутри активной игры
         return JsonResponse({
             "ok": True,
             "status": "continue",
@@ -132,10 +237,11 @@ def telegram_dice_webhook(request):
         })
 
     if res.status == "completed":
-        # отправим ВСЕ ходы по очереди (без авто-кубика после)
+        # ВНИМАНИЕ: если хотите слать карточки серии ПО ОДНОЙ + ForceReply после каждой —
+        # замените на отправку только первой карточки своим _send_one_move_and_quiz(...)
         if bot_token and res.moves:
             Thread(
-                target=send_moves_sequentially,
+                target=_send_moves_then_quiz,   # если уже используете поминутно — оставьте так;
                 args=(bot_token, tg_from_id, res.moves),
                 kwargs={"per_message_delay": 0.6},
                 daemon=True,
@@ -151,9 +257,9 @@ def telegram_dice_webhook(request):
     if res.status == "single":
         if bot_token and res.moves:
             Thread(
-                target=send_moves_sequentially,
+                target=_send_moves_then_quiz,
                 args=(bot_token, tg_from_id, res.moves),
-                kwargs={"per_message_delay": 0.0},
+                kwargs={"per_message_delay": 0.6},
                 daemon=True,
             ).start()
         return JsonResponse({
@@ -164,7 +270,6 @@ def telegram_dice_webhook(request):
         })
 
     if res.status == "ignored":
-        # REMOVED: больше НЕ шлём sendDice автоматически на ignored
         return JsonResponse({
             "ok": True,
             "status": "ignored",
@@ -179,10 +284,6 @@ def telegram_dice_webhook(request):
         "message": res.message,
         "six_count": res.six_count,
     })
-
-
-# helpers внутри этого же файла (или вынеси в helpers/player_lookup.py)
-from django.db import transaction
 
 
 def _player_defaults_from_meta(tg_id: int | None, tg_username: str | None) -> dict:
@@ -245,3 +346,116 @@ def _send_moves_then_dice(bot_token: str, chat_id: int | str,
             send_dice(bot_token, chat_id, emoji=emoji)
         except Exception:
             pass
+
+def _extract_text_reply(payload: dict):
+    """
+    Возвращает {chat_id, from_id, text, reply_to_message_id} или None.
+    """
+    msg = (payload.get("message") or
+           (payload.get("data") or {}).get("message") or
+           {})
+    text = msg.get("text")
+    if not isinstance(text, str):
+        return None
+    reply = msg.get("reply_to_message") or {}
+    return {
+        "chat_id": (msg.get("chat") or {}).get("id"),
+        "from_id": (msg.get("from") or {}).get("id"),
+        "text": text.strip(),
+        "reply_to_message_id": reply.get("message_id"),
+    }
+
+@csrf_exempt
+def telegram_answer_webhook(request):
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    try:
+        payload = json.loads((request.body or b"").decode("utf-8"))
+    except Exception:
+        return JsonResponse({"ok": False, "error": "bad_json"}, status=400)
+
+    data = _extract_text_reply(payload)
+    if not data or not data.get("reply_to_message_id"):
+        # это не ответ на ForceReply — можете игнорить или вернуть ok
+        return JsonResponse({"ok": True, "ignored": True})
+
+    chat_id = data["chat_id"]
+    from_id = data["from_id"]
+    text = data["text"]
+    reply_msg_id = int(data["reply_to_message_id"])
+
+    # Находим ход по ответу на нашу подсказку
+    mv = Move.objects.filter(answer_prompt_msg_id=reply_msg_id).select_related("game").first()
+    if not mv:
+        return JsonResponse({"ok": True, "ignored": True, "reason": "no_move_for_reply"})
+
+    # Сохраняем ответ
+    mv.player_answer = text
+    mv.player_answer_at = timezone.now()
+    mv.answer_prompt_msg_id = None  # больше не ждём
+    mv.save(update_fields=["player_answer", "player_answer_at", "answer_prompt_msg_id"])
+
+    # ищем следующий ход в этой же игре
+    next_mv = Move.objects.filter(
+        game=mv.game, on_hold=False, move_number__gt=mv.move_number
+    ).order_by("move_number").first()
+
+    bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+
+    if next_mv and bot_token:
+        # защитимся: нет ли незакрытых ответов перед next_mv (на всякий случай)
+        has_earlier_pending = Move.objects.filter(
+            game=mv.game, on_hold=False, move_number__lt=next_mv.move_number,
+            player_answer__isnull=True
+        ).exists()
+        if not has_earlier_pending:
+            # соберём move_dict как в EntryManager._serialize_move
+            try:
+                mgr = GameEntryManager()
+                move_dict = mgr._serialize_move(next_mv, player_id=getattr(mv.game, "player_id", None))
+            except Exception:
+                # минимально необходимое: id, номера, клетки, картинка
+                img_name = get_cell_image_name(int(next_mv.to_cell or 0))
+                img_url = image_url_from_board_name(img_name, player_id=getattr(mv.game, "player_id", None),
+                                                    game_id=next_mv.game_id)
+                move_dict = {
+                    "id": next_mv.id,
+                    "move_number": next_mv.move_number,
+                    "rolled": next_mv.rolled,
+                    "from_cell": next_mv.from_cell,
+                    "to_cell": next_mv.to_cell,
+                    "note": next_mv.note,
+                    "event_type": str(getattr(next_mv, "event_type", "")),
+                    "applied_rules": (next_mv.state_snapshot or {}).get("applied_rules", []),
+                    "on_hold": getattr(next_mv, "on_hold", False),
+                    "image_url": img_url,
+                }
+
+            # отправляем следующую карточку + ForceReply
+            Thread(
+                target=_send_one_move_and_quiz,
+                args=(bot_token, chat_id, move_dict),
+                kwargs={"delay": 0.6},
+                daemon=True,
+            ).start()
+
+            return JsonResponse({"ok": True, "saved": True, "move_id": mv.id, "next_move_id": next_mv.id})
+
+    # Ответ игроку — можно бросать кубик
+    bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+    if bot_token:
+        try:
+            import requests
+            requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": "Спасибо! Теперь можете бросать кубик ещё раз 🎲",
+                },
+                timeout=8,
+            )
+        except Exception:
+            pass
+
+    return JsonResponse({"ok": True, "saved": True, "move_id": mv.id})

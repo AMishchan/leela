@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.db.models import Q
 from players.models import Player
 
+
 class Game(models.Model):
     class Status(models.TextChoices):
         ACTIVE = 'active', 'Активна'
@@ -158,7 +159,25 @@ class Move(models.Model):
     state_snapshot = models.JSONField('Состояние после хода', default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     image_url = models.CharField(max_length=255, blank=True, default="")  # относительный путь без домена
-
+    player_answer = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="Ответ игрока",
+        help_text="Текстовый ответ игрока на карточку хода."
+    )
+    player_answer_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Время ответа",
+        help_text="Когда игрок прислал ответ на карточку."
+    )
+    answer_prompt_msg_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,  # ускорит поиск по reply_to_message_id
+        verbose_name="ID сообщения-запроса ответа",
+        help_text="message_id ForceReply-сообщения, на которое игрок должен ответить."
+    )
 
     # Сырой вебхук (весь JSON как есть)
     webhook_payload = models.JSONField('Webhook payload', default=dict, blank=True)
