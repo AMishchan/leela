@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import time
 from typing import Dict, Any, List, Optional
 from django.conf import settings
 from games.services.board import get_cell
 import os
-import requests
 from typing import Any, Dict, Optional
+import time
+import requests
 
 SITE_BASE_URL = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
 
@@ -103,9 +103,7 @@ def send_moves_sequentially(
         rel_img = mv.get("image_url") or mv.get("image")
         abs_path = _abs_path_from_rel(rel_img) if rel_img else None
 
-        import time
-        import requests
-        time.sleep(2.2)
+        time.sleep(5.0)
         # ... внутри цикла по ходам ...
         try:
             # --- 2) Фолбэк: отправка как файла (из приватного MEDIA_ROOT) ---
