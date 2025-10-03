@@ -59,7 +59,7 @@ class GameEntryManager:
         return self._six_continue_text_ru(six_count)
 
 
-    def _six_continue_text_ru(six_count: int) -> str:
+    def _six_continue_text_ru(self, six_count: int) -> str:
         def ru_plural(n: int, one: str, few: str, many: str) -> str:
             n = abs(n)
             if 11 <= (n % 100) <= 14:
