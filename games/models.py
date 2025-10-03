@@ -155,7 +155,11 @@ class Move(models.Model):
     from_cell = models.IntegerField('С клетки', default=0)
     to_cell = models.IntegerField('На клетку', default=0)
     event_type = models.CharField('Событие', max_length=16, choices=EventType.choices, default=EventType.NORMAL)
-    note = models.TextField('Заметка', blank=True)
+    note = models.CharField(
+        max_length=120, blank=True, null=True,
+        verbose_name="Заметка",
+        help_text="Короткая заметка к ходу"
+    )
     state_snapshot = models.JSONField('Состояние после хода', default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     image_url = models.CharField(max_length=255, blank=True, default="")  # относительный путь без домена
