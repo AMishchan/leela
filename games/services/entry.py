@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from time import sleep
 from typing import List, Optional, Dict, Any
 from django.utils import timezone
 
@@ -56,6 +57,7 @@ class GameEntryManager:
     # -------------------------------
     def _six_continue_text(self, six_count: int) -> str:
         # синоним на русский вариант (чтобы не падало, если где-то зовётся по старому имени)
+        sleep(3.0)
         return self._six_continue_text_ru(six_count)
 
 
