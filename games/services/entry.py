@@ -53,6 +53,12 @@ class GameEntryManager:
         ("snakeTo", "ladderTo"),
     )
 
+    # -------------------------------
+    def _six_continue_text(self, six_count: int) -> str:
+        # синоним на русский вариант (чтобы не падало, если где-то зовётся по старому имени)
+        return self._six_continue_text_ru(six_count)
+
+
     def _six_continue_text_ru(six_count: int) -> str:
         def ru_plural(n: int, one: str, few: str, many: str) -> str:
             n = abs(n)
