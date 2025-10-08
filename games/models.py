@@ -9,6 +9,17 @@ from django.db.models import Q
 from players.models import Player
 
 
+class InteractionState(models.TextChoices):
+    IDLE = 'idle', 'Свободно'
+    PROCESSING_QUEUE = 'processing_queue', 'Раздаём очередь'
+    AWAITING_ANSWER = 'awaiting_answer', 'Ждём ответ'
+
+class QAStatus(models.TextChoices):
+    NONE = 'none', 'Нет'
+    QUEUED = 'queued', 'В очереди'
+    CARD_SENT = 'card_sent', 'Карточка отправлена'
+    ANSWERED = 'answered', 'Отвечено'
+
 class Game(models.Model):
     class Status(models.TextChoices):
         ACTIVE = 'active', 'Активна'
@@ -16,6 +27,9 @@ class Game(models.Model):
         FINISHED = 'finished', 'Завершена'
         INACTIVE = 'inactive', 'Неактивна'
         ABORTED = 'aborted', 'Прервана'
+        IDLE = 'idle', 'Свободно'
+        PROCESSING_QUEUE = 'processing_queue', 'Раздаём очередь'
+        AWAITING_ANSWER = 'awaiting_answer', 'Ждём ответ на карточку'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='games', db_index=True)
@@ -36,6 +50,20 @@ class Game(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)  # 👈 срок действия
+    interaction_state = models.CharField(
+        max_length=32,
+        choices=InteractionState.choices,
+        default=InteractionState.IDLE,
+        db_index=True,
+    )
+
+    # текущий элемент очереди, на который ждём ответ
+    awaiting_answer_item = models.ForeignKey(
+        'PendingQA',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='games_waiting'
+    )
 
     class Meta:
         ordering = ('-updated_at',)
@@ -146,6 +174,10 @@ class Move(models.Model):
         LADDER = 'ladder', 'Стрела/лестница'
         BONUS = 'bonus', 'Бонус'
         PENALTY = 'penalty', 'Штраф'
+        NONE = 'none'
+        QUEUED = 'queued'
+        CARD_SENT = 'card_sent'
+        ANSWERED = 'answered'
 
     id = models.BigAutoField(primary_key=True)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='moves', db_index=True)
@@ -189,6 +221,9 @@ class Move(models.Model):
     # Telegram meta
     tg_from_id = models.BigIntegerField('Telegram From ID', null=True, blank=True, db_index=True)
     tg_message_date = models.DateTimeField('Дата сообщения (UTC)', null=True, blank=True, db_index=True)
+    qa_status = models.CharField(max_length=16, choices=QAStatus.choices, default=QAStatus.NONE, db_index=True)
+    qa_sequence_in_combo = models.PositiveIntegerField(default=0, db_index=True)  # порядок в серии
+    qa_combo_id = models.UUIDField(null=True, blank=True, db_index=True)
 
     class Meta:
         ordering = ('move_number',)
@@ -202,3 +237,23 @@ class Move(models.Model):
 
     def __str__(self):
         return f'#{self.move_number} {self.event_type} {self.from_cell}->{self.to_cell}'
+
+    class PendingQA(models.Model):
+        class Status(models.TextChoices):
+            QUEUED = 'queued', 'В очереди'
+            CARD_SENT = 'card_sent', 'Карточка отправлена'
+            ANSWERED = 'answered', 'Отвечено'
+
+        game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='pending_qas', db_index=True)
+        move = models.ForeignKey('Move', on_delete=models.CASCADE, related_name='qa_items')
+        order_index = models.PositiveIntegerField(db_index=True)  # порядок в очереди
+        status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED, db_index=True)
+
+        # что присылали/ждём
+        card_text = models.TextField(blank=True, default='')
+        question_text = models.TextField(blank=True, default='')
+
+        # ответ пользователя
+        answer_text = models.TextField(blank=True, default='')
+
+        created_at = models.DateTimeField(auto_now_add=True, db_index=True)

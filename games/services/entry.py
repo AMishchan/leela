@@ -11,9 +11,10 @@ from games.models import Game, Move
 from games.services.board import resolve_chain, get_cell_image_name
 from games.services.images import normalize_image_relpath, image_url_from_board_name
 
+
 @dataclass
 class EntryStepResult:
-    status: str            # "ignored" | "continue" | "completed" | "single" | "finished"
+    status: str  # "ignored" | "continue" | "completed" | "single" | "finished"
     message: str
     six_count: int
     moves: List[Dict[str, Any]] = field(default_factory=list)
@@ -60,7 +61,6 @@ class GameEntryManager:
         sleep(5.0)
         return self._six_continue_text_ru(six_count)
 
-
     def _six_continue_text_ru(self, six_count: int) -> str:
         def ru_plural(n: int, one: str, few: str, many: str) -> str:
             n = abs(n)
@@ -73,12 +73,12 @@ class GameEntryManager:
                 return few
             return many
 
-        form = ru_plural(six_count, "шестёрку", "шестёрки", "шестёрок")
+        form = ru_plural(six_count, "шістку", "шістки", "шісток")
         return (
-            f"Отлично! Вы накопили {six_count} {form}. "
-            "Бросайте кубик ещё раз. "
-            "Как только выпадет число, отличное от 6, "
-            "я отправлю все накопленные ходы по порядку."
+            f"Чудово! Ви назбирали {six_count} {form}. "
+            "Кидайте кубик ще раз. "
+            "Як тільки випаде число, відмінне від 6, "
+            "я надішлю всі накопичені ходи по черзі."
         )
 
     # ---------- utils ----------
@@ -304,7 +304,6 @@ class GameEntryManager:
             final_cell, chain, hit_exit = self._walk_n_steps(0, 6)
             img_rel = normalize_image_relpath(get_cell_image_name(final_cell))
 
-
             Move.objects.create(
                 game=game, move_number=move_no, rolled=6,
                 from_cell=current_cell, to_cell=final_cell,
@@ -379,6 +378,7 @@ class GameEntryManager:
                 state_snapshot={"applied_rules": self._rules_payload(chain)},
                 image_url=img_rel,
                 on_hold=True,
+                qa_sequence_in_combo=0,
             )
             game.current_cell = final_cell
             game.current_six_number = 1
@@ -579,7 +579,7 @@ class GameEntryManager:
         ET = getattr(Move, "EventType", None)
         return getattr(ET, name, name) if ET else name
 
-    def _event_from_chain(self, chain: list[list[int]] | list[tuple[int,int]] | None):
+    def _event_from_chain(self, chain: list[list[int]] | list[tuple[int, int]] | None):
         """
         По последнему срабатыванию определяем тип: LADDER (вверх) или SNAKE (вниз).
         Если срабатываний нет — NORMAL.
@@ -593,13 +593,14 @@ class GameEntryManager:
             return self._et("SNAKE")
         return self.EVENT_NORMAL
 
-    def _rules_payload(self, chain: list[list[int]] | list[tuple[int,int]] | None):
+    def _rules_payload(self, chain: list[list[int]] | list[tuple[int, int]] | None):
         """Сериализация применённых правил в state_snapshot.applied_rules."""
         if not chain:
             return []
         out = []
         for a, b in chain:
-            a = int(a); b = int(b)
+            a = int(a);
+            b = int(b)
             out.append({
                 "from": a,
                 "to": b,

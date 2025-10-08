@@ -86,18 +86,24 @@ class MoveAdmin(admin.ModelAdmin):
         "answered_dot",          # индикатор ответа
         "from_cell", "to_cell", "event_type",
         "on_hold_dot",           # индикатор on_hold
+        "answer_prompt_msg_id", "player_answer_at"
     )
     list_select_related = ("game",)
-    search_fields = ("game__id", "player_answer", "note")
+    search_fields = ("game__id", "player_answer", "note", "answer_prompt_msg_id", "tg_from_id")
     list_filter = (("player_answer", admin.EmptyFieldListFilter), "event_type")
 
     # форма изменения хода: убираем реальный on_hold, показываем только индикатор
     fields = (
-        "game", "move_number", "rolled",
-        "from_cell", "to_cell", "event_type",
-        "note", "state_snapshot", "image_url",
-        "player_answer", "player_answer_at",
-        "answered_dot", "on_hold_dot",
+        ("game", "move_number", "event_type"),
+        ("from_cell", "to_cell", "rolled"),
+        "note",
+        "image_url",
+        ("player_answer", "player_answer_at", "answer_prompt_msg_id"),  # 👈 здесь
+        "state_snapshot",
+        ("tg_from_id", "tg_message_date"),
+        ("qa_status", "qa_sequence_in_combo", "qa_combo_id"),
+        "webhook_payload",
+
     )
     readonly_fields = ("answered_dot", "on_hold_dot")
     exclude = ("on_hold",)  # <-- реальное чекбокс-поле скрываем, чтобы нельзя было менять руками
