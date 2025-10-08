@@ -58,7 +58,7 @@ class GameEntryManager:
     # -------------------------------
     def _six_continue_text(self, six_count: int) -> str:
         # синоним на русский вариант (чтобы не падало, если где-то зовётся по старому имени)
-        sleep(5.0)
+        sleep(3.0)
         return self._six_continue_text_ru(six_count)
 
     def _six_continue_text_ru(self, six_count: int) -> str:

@@ -103,7 +103,7 @@ def send_moves_sequentially(
         rel_img = mv.get("image_url") or mv.get("image")
         abs_path = _abs_path_from_rel(rel_img) if rel_img else None
 
-        time.sleep(5.0)
+        time.sleep(3.0)
         # ... внутри цикла по ходам ...
         try:
             # --- 2) Фолбэк: отправка как файла (из приватного MEDIA_ROOT) ---
