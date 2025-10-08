@@ -37,8 +37,7 @@ def _send_one_move_and_quiz(bot_token: str, chat_id: int | str, move_dict: dict,
             move_id = move_dict.get("id")
             to_cell = move_dict.get("to_cell")
             rolled = move_dict.get("rolled")
-            prompt = f"Ваш ответ по ходу #{move_dict.get('move_number')} (бросок {rolled}, клетка {to_cell}). Напишите, что вы почувствовали/поняли."
-
+            prompt = f"Ваша відповідь по ходу #{move_dict.get('move_number')} (кидок {rolled}, клітинка {to_cell}). Напишіть, що ви відчули/зрозуміли."
             resp = send_quiz(bot_token, chat_id, prompt_text=prompt)
             msg_id = (resp.get("result") or {}).get("message_id")
             if msg_id and move_id:
@@ -66,8 +65,7 @@ def _send_moves_then_quiz(bot_token: str, chat_id: int | str, moves: list[dict],
             # текст-подсказка можно сформировать из клетки/события
             to_cell = last.get("to_cell")
             rolled = last.get("rolled")
-            prompt = f"Ваш ответ по ходу #{last.get('move_number')} (бросок {rolled}, клетка {to_cell}). Напишите, что вы почувствовали/поняли."
-
+            prompt = f"Ваша відповідь по ходу #{last.get('move_number')} (кидок {rolled}, клітинка {to_cell}). Напишіть, що ви відчули/зрозуміли."
             resp = send_quiz(bot_token, chat_id, prompt_text=prompt)
             msg_id = (resp.get("result") or {}).get("message_id")
             if msg_id and move_id:
@@ -220,6 +218,8 @@ def telegram_dice_webhook(request):
                     json={"chat_id": chat_id, "text": "Дякуємо! Відповідь збережено. Можете кидати кубик 🎲"},
                     timeout=8,
                 )
+
+                Thread(target=send_dice, args=(bot_token, chat_id), kwargs={"emoji": "🎲"}, daemon=True).start()
             except Exception:
                 pass
 
@@ -249,8 +249,8 @@ def telegram_dice_webhook(request):
                     f"https://api.telegram.org/bot{bot_token}/sendMessage",
                     json={
                         "chat_id": chat_id,
-                        "text": (f"Нужно ответить на предыдущую карточку — ход #{pending.move_number} "
-                                 f"(клетка {pending.to_cell}). Пожалуйста, напишите ответ."),
+                        "text": (f"Потрібно відповісти на попередню картку — хід #{pending.move_number} "
+                                 f"(клітинка {pending.to_cell}). Напишіть, що ви відчули/зрозуміли."),
                     },
                     timeout=8,
                 )
@@ -258,8 +258,7 @@ def telegram_dice_webhook(request):
                 pass
 
             # 2) ForceReply-запрос (перезапросим даже если уже слали)
-            prompt = (f"Ваш ответ по ходу #{pending.move_number} "
-                      f"(клетка {pending.to_cell}). Напишите, что вы почувствовали/поняли.")
+            prompt = (f"Ваша відповідь по ходу  #{pending.move_number} (кидок {pending.move_number} клітинка {pending.to_cell}). Напишіть, що ви відчули/зрозуміли.")
             resp = send_quiz(bot_token, chat_id, prompt_text=prompt)
             msg_id = (resp.get("result") or {}).get("message_id")
             if msg_id:
@@ -269,7 +268,7 @@ def telegram_dice_webhook(request):
             return JsonResponse({
                 "ok": True,
                 "status": "awaiting_answer",
-                "message": "Требуется ответ на предыдущий ход.",
+                "message": "Потрібна відповідь на попередній хід.",
                 "pending_move_id": pending.id,
             })
 
@@ -281,8 +280,8 @@ def telegram_dice_webhook(request):
     if pending:
         bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
         if bot_token and not pending.answer_prompt_msg_id:
-            prompt = (f"Требуется ответ по ходу #{pending.move_number} "
-                      f"(клетка {pending.to_cell}). Напишите, что вы почувствовали/поняли.")
+            prompt = (f"Потрібна відповідь по ходу #{pending.move_number} "
+                      f"(клетка {pending.to_cell}). Напишіть, що ви відчули/зрозуміли.")
             resp = send_quiz(bot_token, chat_id, prompt_text=prompt)
             msg_id = (resp.get("result") or {}).get("message_id")
             if msg_id:
@@ -291,7 +290,7 @@ def telegram_dice_webhook(request):
 
         return JsonResponse({
             "ok": True, "status": "awaiting_answer",
-            "message": "Пожалуйста, ответьте на предыдущий ход перед следующим броском.",
+            "message": "Будь ласка, дайте відповідь на попередній хід перед наступним кидком.",
             "pending_move_id": pending.id,
         })
 
@@ -530,7 +529,7 @@ def telegram_answer_webhook(request):
                 f"https://api.telegram.org/bot{bot_token}/sendMessage",
                 json={
                     "chat_id": chat_id,
-                    "text": "Спасибо! Теперь можете бросать кубик ещё раз 🎲",
+                    "text": "Дякуємо! Можете кидати кубик ще раз 🎲",
                 },
                 timeout=8,
             )

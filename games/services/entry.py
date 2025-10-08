@@ -299,7 +299,7 @@ class GameEntryManager:
         # A) старт: нужна 6
         if at_start and not series_active:
             if rolled != 6:
-                return EntryStepResult(status="ignored", message="Для входа нужна шестерка.", six_count=0, moves=[])
+                return EntryStepResult(status="ignored", message="Для входу потрібна шістка.", six_count=0, moves=[])
             move_no = self._next_move_number(game)
             final_cell, chain, hit_exit = self._walk_n_steps(0, 6)
             img_rel = normalize_image_relpath(get_cell_image_name(final_cell))
@@ -438,7 +438,7 @@ class GameEntryManager:
 
             return EntryStepResult(
                 status="completed",
-                message="Серия завершена. Отдаём все накопленные ходы.",
+                message="Серія завершена. Віддаємо всі накопичені ходи.",
                 six_count=0,
                 moves=self._serialize_moves(released_list, player_id=player_id),
             )
@@ -478,7 +478,7 @@ class GameEntryManager:
 
             return EntryStepResult(
                 status="single",
-                message="Ход выполнен.",
+                message="Хід виконано.",
                 six_count=0,
                 moves=[self._serialize_move(mv, player_id=player_id)],
             )
@@ -486,7 +486,7 @@ class GameEntryManager:
         # fallback
         return EntryStepResult(
             status="ignored",
-            message="Состояние не требует действий.",
+            message="Стан не потребує дій.",
             six_count=int(getattr(game, "current_six_number", 0) or 0),
             moves=[],
         )
