@@ -9,11 +9,13 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
-
+import os
+from dotenv import load_dotenv
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv()
 
 
 # Quick-start development settings - unsuitable for production
@@ -145,3 +147,4 @@ SITE_BASE_URL = "http://127.0.0.1:8001"
 TELEGRAM_BOT_TOKEN = "8148401559:AAHz2_mRbVUThQZjO3HBvbcgPaEsoKlAEiU"
 PROTECTED_CARDS_DIR  = PROTECTED_MEDIA_ROOT / "cards"
 START_GAME_API_KEY="GQusW3rAW8qW3NcbMvJU7YyyjYhC9NNHBSqcCvjok4I"
+OPEN_AI_TOKEN=os.getenv("OPEN_AI_TOKEN")

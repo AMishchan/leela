@@ -10,6 +10,8 @@ from django.db.models import Max
 from games.models import Game, Move
 from games.services.board import resolve_chain, get_cell_image_name
 from games.services.images import normalize_image_relpath, image_url_from_board_name
+from games.services.game_summary import collect_game_summary, render_summary_prompt
+from games.services.openai_client import OpenAIClient
 
 
 @dataclass
@@ -275,10 +277,17 @@ class GameEntryManager:
         self._persist_finished_record(game, moves=released_list, reason="exit_68", player_id=player_id)
 
         self._mark_finished_nonactive(game)
+        try:
+            summary = collect_game_summary(game)
+            client = OpenAIClient()
+            analysis = client.send_summary_json(summary)
+            sleep(3.0)
+        except Exception:
+            analysis = ''
 
         return EntryStepResult(
             status="finished",
-            message="Вихід через 68. Гра завершена.",
+            message=f"Вихід через 68. Гра завершена. {analysis}",
             six_count=0,
             moves=self._serialize_moves(released_list, player_id=player_id),
         )
@@ -429,9 +438,17 @@ class GameEntryManager:
                 # NEW: снапшот завершающей серии
                 self._persist_finished_record(game, moves=released_list, reason="exit_68", player_id=player_id)
                 self._mark_finished_nonactive(game)
+                try:
+                    summary = collect_game_summary(game)
+                    client = OpenAIClient()
+                    analysis = client.send_summary_json(summary)
+                    sleep(3.0)
+                except Exception:
+                    analysis = ''
+
                 return EntryStepResult(
                     status="finished",
-                    message="Вихід через 68. Гра завершена.",
+                    message=f"Вихід через 68. Гра завершена. {analysis}",
                     six_count=0,
                     moves=self._serialize_moves(released_list, player_id=player_id),
                 )
@@ -469,9 +486,17 @@ class GameEntryManager:
                 # NEW: снапшот одиночного финишного хода
                 self._persist_finished_record(game, moves=[mv], reason="exit_68", player_id=player_id)
                 self._mark_finished_nonactive(game)
+                try:
+                    summary = collect_game_summary(game)
+                    client = OpenAIClient()
+                    analysis = client.send_summary_json(summary)
+                    sleep(3.0)
+                except Exception:
+                    analysis = ''
+
                 return EntryStepResult(
                     status="finished",
-                    message="Вихід через 68. Гра завершена.",
+                    message=f"Вихід через 68. Гра завершена. {analysis}",
                     six_count=0,
                     moves=[self._serialize_move(mv, player_id=player_id)],
                 )
