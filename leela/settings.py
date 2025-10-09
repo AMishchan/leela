@@ -143,7 +143,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 BOARD_CELL_IMAGE_ROOT = BASE_DIR / "games" / "data/cards"
 # Какой URL-префикс будет у этих картинок (отдавай их как статику/медиа)
 BOARD_CELL_IMAGE_URL  = "/media/board_images"   # или "/static/board", как у тебя принято
-SITE_BASE_URL = "http://127.0.0.1:8001"
+SITE_BASE_URL=os.getenv("SITE_BASE_URL")
 TELEGRAM_BOT_TOKEN = "8148401559:AAHz2_mRbVUThQZjO3HBvbcgPaEsoKlAEiU"
 PROTECTED_CARDS_DIR  = PROTECTED_MEDIA_ROOT / "cards"
 START_GAME_API_KEY="GQusW3rAW8qW3NcbMvJU7YyyjYhC9NNHBSqcCvjok4I"
