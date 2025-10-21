@@ -94,6 +94,31 @@ class GameEntryManager:
     def _serialize_move(self, mv: Move, player_id: Optional[int] = None) -> dict:
         img_name = get_cell_image_name(int(mv.to_cell or 0))
         img_url = image_url_from_board_name(img_name, player_id=player_id, game_id=mv.game_id)
+
+        applied_rules = (mv.state_snapshot or {}).get("applied_rules", []) or []
+
+        # Сформируем понятный кусок текста про змею/лестницу
+        def _pretty_rules(rules):
+            if not rules:
+                return ""
+            parts = []
+            for r in rules:
+                rtype = r.get("type")
+                if rtype == "ladder":
+                    parts.append(f"{r['from']} → {r['to']} (лестница)")
+                elif rtype == "snake":
+                    parts.append(f"{r['from']} → {r['to']} (змея)")
+                else:
+                    parts.append(f"{r['from']} → {r['to']}")
+            return " ; ".join(parts)
+
+        rules_txt = _pretty_rules(applied_rules)
+        # Итоговая строка для Telegram
+        human = (
+                f"Бросок: {mv.rolled}. {mv.from_cell} → {mv.to_cell}."
+                + (f" Правило: {rules_txt}." if rules_txt else "")
+        )
+
         return {
             "id": mv.id,
             "move_number": mv.move_number,
@@ -102,9 +127,11 @@ class GameEntryManager:
             "to_cell": mv.to_cell,
             "note": mv.note,
             "event_type": str(getattr(mv, "event_type", "")),
-            "applied_rules": (mv.state_snapshot or {}).get("applied_rules", []),
-            "on_hold": getattr(mv, "on_hold", False),
+            "applied_rules": applied_rules,  # уже было
+            "chain_pairs": [[r["from"], r["to"]] for r in applied_rules],  # удобно для UI
+            "human_text": human,  # НОВОЕ — готовый текст для Telegram
             "image_url": img_url,
+            "on_hold": getattr(mv, "on_hold", False),
         }
 
     def _serialize_moves(self, qs, player_id: Optional[int] = None) -> List[Dict[str, Any]]:
