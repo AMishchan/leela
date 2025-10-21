@@ -63,19 +63,45 @@ def render_move_text(mv: Dict[str, Any]) -> str:
 
     title = cell.get("title") or cell.get("name") or f"Клетка {to_cell}"
     meaning = cell.get("meaning") or cell.get("text") or cell.get("desc") or ""
+
     rules = mv.get("applied_rules") or []
+    # Клетка остановки ПЕРЕД правилом (то, что «пропадает» в Telegram):
+    pre_rule_cell = None
     if rules:
-        chain = "\n".join([f"→ {r.get('from')} → {r.get('to')}" for r in rules])
-        rules_block = f"\nПереходы:\n{chain}"
+        try:
+            pre_rule_cell = int(rules[0].get("from"))
+        except Exception:
+            pre_rule_cell = None
+
+    # Красиво опишем цепочку правил
+    if rules:
+        parts = []
+        for r in rules:
+            a = r.get("from")
+            b = r.get("to")
+            t = (r.get("type") or "").lower()
+            label = "лестница" if t == "ladder" else ("змея" if t == "snake" else "правило")
+            parts.append(f"{a} → {b} ({label})")
+        rules_block = "Переходы: " + " ; ".join(parts)
     else:
         rules_block = ""
 
-    return (
-        f"Бросок: {rolled}\n"
-        f"{from_cell} → {to_cell}\n"
-        f"{title}\n"
-        f"{meaning}{rules_block}"
-    ).strip()
+    # Итоговый текст
+    lines = [
+        f"Бросок: {rolled}",
+        f"{from_cell} → {to_cell}",
+        title,
+    ]
+    if meaning:
+        lines.append(meaning)
+
+    # 👇 Вот та самая «промежуточная» клетка (начало стрелы/лестницы)
+    if pre_rule_cell is not None:
+        lines.append(f"Остановились на {pre_rule_cell} — сработало правило.")
+    if rules_block:
+        lines.append(rules_block)
+
+    return "\n".join(lines).strip()
 
 
 # ---------- Основная функция ----------
@@ -111,7 +137,7 @@ def send_moves_sequentially(
                 with open(abs_path, "rb") as f:
                     r = requests.post(
                         f"{base}/sendPhoto",
-                        data={"chat_id": chat_id, "caption": ''},
+                        data={"chat_id": chat_id, "caption": caption or ""},
                         files={"photo": f},
                         timeout=5
                     )
