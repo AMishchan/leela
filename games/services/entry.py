@@ -144,8 +144,58 @@ class GameEntryManager:
             "on_hold": getattr(mv, "on_hold", False),
         }
 
-    def _serialize_moves(self, qs, player_id: Optional[int] = None) -> List[Dict[str, Any]]:
-        return [self._serialize_move(mv, player_id) for mv in qs]
+    def _serialize_move(self, mv: Move, player_id: Optional[int] = None) -> dict:
+        img_name = get_cell_image_name(int(mv.to_cell or 0))
+        img_url = image_url_from_board_name(img_name, player_id=player_id, game_id=mv.game_id)
+
+        applied_rules = (mv.state_snapshot or {}).get("applied_rules", []) or []
+
+        # 1) Клетка остановки ДО применения правила (то, чего тебе не хватало в Telegram)
+        pre_rule_cell = int(applied_rules[0]["from"]) if applied_rules else int(mv.to_cell or 0)
+
+        # 2) Читаемый текст про правила
+        def _pretty_rules(rules):
+            if not rules:
+                return ""
+            parts = []
+            for r in rules:
+                a, b = int(r["from"]), int(r["to"])
+                rtype = r.get("type")
+                if rtype == "ladder":
+                    parts.append(f"{a} → {b} (лестница)")
+                elif rtype == "snake":
+                    parts.append(f"{a} → {b} (змея)")
+                else:
+                    parts.append(f"{a} → {b}")
+            return " ; ".join(parts)
+
+        rules_txt = _pretty_rules(applied_rules)
+
+        # 3) Готовые строки: одна — про «встал на начало правила», другая — про итог хода
+        #    (можешь использовать обе, либо только одну — см. следующий шаг)
+        human_pre_rule = (
+            f"Бросок: {mv.rolled}. Дошли до {pre_rule_cell} — сработало правило: {rules_txt}."
+            if applied_rules else
+            ""
+        )
+        human_final = f"Итог: {mv.from_cell} → {mv.to_cell}."
+
+        return {
+            "id": mv.id,
+            "move_number": mv.move_number,
+            "rolled": mv.rolled,
+            "from_cell": mv.from_cell,
+            "to_cell": mv.to_cell,
+            "pre_rule_cell": pre_rule_cell,  # НОВОЕ — «точка входа в стрелу/лестницу»
+            "note": mv.note,
+            "event_type": str(getattr(mv, "event_type", "")),
+            "applied_rules": applied_rules,
+            "chain_pairs": [[r["from"], r["to"]] for r in applied_rules],
+            "human_text_pre_rule": human_pre_rule,  # НОВОЕ — текст про «встал на начало»
+            "human_text_final": human_final,  # НОВОЕ — итог хода
+            "image_url": img_url,
+            "on_hold": getattr(mv, "on_hold", False),
+        }
 
     def _extract_alt_to(self, meta: dict) -> Optional[int]:
         if not isinstance(meta, dict):
