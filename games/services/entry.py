@@ -719,3 +719,7 @@ class GameEntryManager:
                 "type": "ladder" if b > a else ("snake" if b < a else "neutral"),
             })
         return out
+
+    def _serialize_moves(self, moves: list[Move], player_id: Optional[int] = None) -> list[dict]:
+        """Сериализация списка ходов."""
+        return [self._serialize_move(mv, player_id=player_id) for mv in moves]
