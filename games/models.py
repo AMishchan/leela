@@ -183,7 +183,7 @@ class Move(models.Model):
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='moves', db_index=True)
     move_number = models.PositiveIntegerField('№ хода')
     on_hold = models.BooleanField('Остаться после 6', default=False)
-    rolled = models.PositiveSmallIntegerField('Бросок', default=0)
+    rolled = models.IntegerField(null=True, blank=True)
     from_cell = models.IntegerField('С клетки', default=0)
     to_cell = models.IntegerField('На клетку', default=0)
     event_type = models.CharField('Событие', max_length=16, choices=EventType.choices, default=EventType.NORMAL)
