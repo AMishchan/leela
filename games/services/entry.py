@@ -57,6 +57,103 @@ class GameEntryManager:
         ("snakeTo", "ladderTo"),
     )
 
+    def _create_moves_with_chain(
+            self,
+            *,
+            game: Game,
+            start_move_no: int,
+            from_cell: int,
+            rolled: int,
+            final_cell: int,
+            chain: list[list[int]] | list[tuple[int, int]],
+            on_hold: bool,
+            at_start: bool,
+    ) -> tuple[int, list[Move]]:
+        """
+        Persists:
+          1) the STEP move: from_cell -> pre_rule_cell (rolled shown here)
+          2) each RULE hop as its own move: a -> b (rolled = None)
+        Returns: (last_move_no, list_of_created_moves)
+        """
+        created: list[Move] = []
+        move_no = int(start_move_no)
+
+        # 1) STEP: go to the *first* rule start (or final_cell if no rules)
+        if chain:
+            pre_rule = int(chain[0][0])
+        else:
+            pre_rule = int(final_cell)
+
+        # only create the step move if it actually moves
+        if int(from_cell) != int(pre_rule):
+            img_rel_step = normalize_image_relpath(get_cell_image_name(pre_rule))
+            created.append(
+                Move.objects.create(
+                    game=game, move_number=move_no, rolled=int(rolled),
+                    from_cell=int(from_cell), to_cell=pre_rule,
+                    event_type=self.EVENT_NORMAL,
+                    note=("entry: first six" if at_start and rolled == 6 else
+                          "series: six" if rolled == 6 else
+                          "single step" if not chain else "step to rule start"),
+                    state_snapshot={"applied_rules": []},
+                    image_url=img_rel_step,
+                    on_hold=on_hold,
+                )
+            )
+            move_no += 1
+
+        # 2) RULE HOPS: one Move per (a -> b)
+        for a, b in chain:
+            a, b = int(a), int(b)
+            img_rel_rule = normalize_image_relpath(get_cell_image_name(b))
+            created.append(
+                Move.objects.create(
+                    game=game, move_number=move_no, rolled=None,
+                    from_cell=a, to_cell=b,
+                    event_type=self._et("LADDER") if b > a else self._et("SNAKE") if b < a else self.EVENT_NORMAL,
+                    note=f"auto rule: {a}->{b}",
+                    state_snapshot={"applied_rules": self._rules_payload([[a, b]])},
+                    image_url=img_rel_rule,
+                    on_hold=on_hold,
+                )
+            )
+            move_no += 1
+
+        # 3) If no chain, ensure we still have a single move to final_cell
+        if not chain and int(from_cell) != int(final_cell):
+            img_rel_final = normalize_image_relpath(get_cell_image_name(final_cell))
+            created.append(
+                Move.objects.create(
+                    game=game, move_number=move_no, rolled=int(rolled),
+                    from_cell=int(from_cell), to_cell=int(final_cell),
+                    event_type=self.EVENT_NORMAL,
+                    note="single move",
+                    state_snapshot={"applied_rules": []},
+                    image_url=img_rel_final,
+                    on_hold=on_hold,
+                )
+            )
+            move_no += 1
+
+        # If nothing had to be created (edge case), create a no-op move once:
+        if not created:
+            img_rel_final = normalize_image_relpath(get_cell_image_name(final_cell))
+            created.append(
+                Move.objects.create(
+                    game=game, move_number=move_no, rolled=int(rolled),
+                    from_cell=int(from_cell), to_cell=int(final_cell),
+                    event_type=self.EVENT_NORMAL,
+                    note="noop",
+                    state_snapshot={"applied_rules": []},
+                    image_url=img_rel_final,
+                    on_hold=on_hold,
+                )
+            )
+            move_no += 1
+
+        return move_no - 1, created
+
+
     # -------------------------------
     def _six_continue_text(self, six_count: int) -> str:
         # синоним на русский вариант (чтобы не падало, если где-то зовётся по старому имени)
@@ -91,58 +188,6 @@ class GameEntryManager:
             last_no = agg.get("move_number__max") or 0
         return int(last_no) + 1
 
-    def _serialize_move(self, mv: Move, player_id: Optional[int] = None) -> dict:
-        img_name = get_cell_image_name(int(mv.to_cell or 0))
-        img_url = image_url_from_board_name(img_name, player_id=player_id, game_id=mv.game_id)
-
-        applied_rules = (mv.state_snapshot or {}).get("applied_rules", []) or []
-
-        # 1) Клетка остановки ДО применения правила (то, чего тебе не хватало в Telegram)
-        pre_rule_cell = int(applied_rules[0]["from"]) if applied_rules else int(mv.to_cell or 0)
-
-        # 2) Читаемый текст про правила
-        def _pretty_rules(rules):
-            if not rules:
-                return ""
-            parts = []
-            for r in rules:
-                a, b = int(r["from"]), int(r["to"])
-                rtype = r.get("type")
-                if rtype == "ladder":
-                    parts.append(f"{a} → {b} (лестница)")
-                elif rtype == "snake":
-                    parts.append(f"{a} → {b} (змея)")
-                else:
-                    parts.append(f"{a} → {b}")
-            return " ; ".join(parts)
-
-        rules_txt = _pretty_rules(applied_rules)
-
-        # 3) Готовые строки: одна — про «встал на начало правила», другая — про итог хода
-        #    (можешь использовать обе, либо только одну — см. следующий шаг)
-        human_pre_rule = (
-            f"Бросок: {mv.rolled}. Дошли до {pre_rule_cell} — сработало правило: {rules_txt}."
-            if applied_rules else
-            ""
-        )
-        human_final = f"Итог: {mv.from_cell} → {mv.to_cell}."
-
-        return {
-            "id": mv.id,
-            "move_number": mv.move_number,
-            "rolled": mv.rolled,
-            "from_cell": mv.from_cell,
-            "to_cell": mv.to_cell,
-            "pre_rule_cell": pre_rule_cell,  # НОВОЕ — «точка входа в стрелу/лестницу»
-            "note": mv.note,
-            "event_type": str(getattr(mv, "event_type", "")),
-            "applied_rules": applied_rules,
-            "chain_pairs": [[r["from"], r["to"]] for r in applied_rules],
-            "human_text_pre_rule": human_pre_rule,  # НОВОЕ — текст про «встал на начало»
-            "human_text_final": human_final,  # НОВОЕ — итог хода
-            "image_url": img_url,
-            "on_hold": getattr(mv, "on_hold", False),
-        }
 
     def _serialize_move(self, mv: Move, player_id: Optional[int] = None) -> dict:
         img_name = get_cell_image_name(int(mv.to_cell or 0))
@@ -398,21 +443,22 @@ class GameEntryManager:
                 return EntryStepResult(status="ignored", message="Для входу потрібна шістка.", six_count=0, moves=[])
             move_no = self._next_move_number(game)
             final_cell, chain, hit_exit = self._walk_n_steps(0, 6)
-            img_rel = normalize_image_relpath(get_cell_image_name(final_cell))
 
-            Move.objects.create(
-                game=game, move_number=move_no, rolled=6,
-                from_cell=current_cell, to_cell=final_cell,
-                event_type=self._event_from_chain(chain),
-                note="entry: first six",
-                state_snapshot={"applied_rules": self._rules_payload(chain)},
-                image_url=img_rel,
+            last_no, created_moves = self._create_moves_with_chain(
+                game=game,
+                start_move_no=move_no,
+                from_cell=current_cell,  # 0
+                rolled=6,
+                final_cell=final_cell,
+                chain=chain,
                 on_hold=True,
+                at_start=True,
             )
+
             game.current_cell = final_cell
             game.current_six_number = 1
             if hasattr(game, "last_move_number"):
-                game.last_move_number = move_no
+                game.last_move_number = last_no
                 game.save(update_fields=["current_cell", "current_six_number", "last_move_number"])
             else:
                 game.save(update_fields=["current_cell", "current_six_number"])
@@ -431,21 +477,22 @@ class GameEntryManager:
         if series_active and rolled == 6:
             move_no = self._next_move_number(game)
             final_cell, chain, hit_exit = self._walk_n_steps(current_cell, 6)
-            img_rel = normalize_image_relpath(get_cell_image_name(final_cell))
 
-            Move.objects.create(
-                game=game, move_number=move_no, rolled=6,
-                from_cell=current_cell, to_cell=final_cell,
-                event_type=self._event_from_chain(chain),
-                note=("entry: six #{}".format(six_count + 1) if at_start else "series: six"),
-                state_snapshot={"applied_rules": self._rules_payload(chain)},
-                image_url=img_rel,
+            last_no, created_moves = self._create_moves_with_chain(
+                game=game,
+                start_move_no=move_no,
+                from_cell=current_cell,
+                rolled=6,
+                final_cell=final_cell,
+                chain=chain,
                 on_hold=True,
+                at_start=at_start,
             )
+
             game.current_cell = final_cell
             game.current_six_number = six_count + 1
             if hasattr(game, "last_move_number"):
-                game.last_move_number = move_no
+                game.last_move_number = last_no
                 game.save(update_fields=["current_cell", "current_six_number", "last_move_number"])
             else:
                 game.save(update_fields=["current_cell", "current_six_number"])
@@ -464,22 +511,26 @@ class GameEntryManager:
         if (not series_active) and (rolled == 6) and (has_non_hold or current_cell > 0 or has_moves_any):
             move_no = self._next_move_number(game)
             final_cell, chain, hit_exit = self._walk_n_steps(current_cell, 6)
-            img_rel = normalize_image_relpath(get_cell_image_name(final_cell))
 
-            Move.objects.create(
-                game=game, move_number=move_no, rolled=6,
-                from_cell=current_cell, to_cell=final_cell,
-                event_type=self._event_from_chain(chain),
-                note="series: first six",
-                state_snapshot={"applied_rules": self._rules_payload(chain)},
-                image_url=img_rel,
+            last_no, created_moves = self._create_moves_with_chain(
+                game=game,
+                start_move_no=move_no,
+                from_cell=current_cell,
+                rolled=6,
+                final_cell=final_cell,
+                chain=chain,
                 on_hold=True,
-                qa_sequence_in_combo=0,
+                at_start=False,
             )
+
+            # если нужно сохранить qa_sequence_in_combo=0 как раньше — проставим на первом созданном ходу
+            if created_moves and hasattr(created_moves[0], "qa_sequence_in_combo"):
+                type(created_moves[0]).objects.filter(pk=created_moves[0].pk).update(qa_sequence_in_combo=0)
+
             game.current_cell = final_cell
             game.current_six_number = 1
             if hasattr(game, "last_move_number"):
-                game.last_move_number = move_no
+                game.last_move_number = last_no
                 game.save(update_fields=["current_cell", "current_six_number", "last_move_number"])
             else:
                 game.save(update_fields=["current_cell", "current_six_number"])
@@ -498,21 +549,22 @@ class GameEntryManager:
         if series_active and rolled != 6:
             move_no = self._next_move_number(game)
             final_cell, chain, hit_exit = self._walk_n_steps(current_cell, int(rolled))
-            img_rel = normalize_image_relpath(get_cell_image_name(final_cell))
 
-            Move.objects.create(
-                game=game, move_number=move_no, rolled=int(rolled),
-                from_cell=current_cell, to_cell=final_cell,
-                event_type=self._event_from_chain(chain),
-                note=("entry: final non-six" if at_start else "series: final non-six"),
-                state_snapshot={"applied_rules": self._rules_payload(chain)},
-                image_url=img_rel,
+            last_no, created_moves = self._create_moves_with_chain(
+                game=game,
+                start_move_no=move_no,
+                from_cell=current_cell,
+                rolled=int(rolled),
+                final_cell=final_cell,
+                chain=chain,
                 on_hold=True,
+                at_start=at_start,
             )
+
             game.current_cell = final_cell
             game.current_six_number = 0
             if hasattr(game, "last_move_number"):
-                game.last_move_number = move_no
+                game.last_move_number = last_no
                 game.save(update_fields=["current_cell", "current_six_number", "last_move_number"])
             else:
                 game.save(update_fields=["current_cell", "current_six_number"])
@@ -551,27 +603,27 @@ class GameEntryManager:
         if (not series_active) and (rolled != 6):
             move_no = self._next_move_number(game)
             final_cell, chain, hit_exit = self._walk_n_steps(current_cell, int(rolled))
-            img_rel = normalize_image_relpath(get_cell_image_name(final_cell))
 
-            mv = Move.objects.create(
-                game=game, move_number=move_no, rolled=int(rolled),
-                from_cell=current_cell, to_cell=final_cell,
-                event_type=self._event_from_chain(chain),
-                note="single move",
-                state_snapshot={"applied_rules": self._rules_payload(chain)},
-                image_url=img_rel,
+            last_no, created_moves = self._create_moves_with_chain(
+                game=game,
+                start_move_no=move_no,
+                from_cell=current_cell,
+                rolled=int(rolled),
+                final_cell=final_cell,
+                chain=chain,
                 on_hold=False,
+                at_start=False,
             )
+
             game.current_cell = final_cell
             if hasattr(game, "last_move_number"):
-                game.last_move_number = move_no
+                game.last_move_number = last_no
                 game.save(update_fields=["current_cell", "last_move_number"])
             else:
                 game.save(update_fields=["current_cell"])
 
             if final_cell == self.EXIT_CELL or hit_exit:
-                # NEW: снапшот одиночного финишного хода
-                self._persist_finished_record(game, moves=[mv], reason="exit_68", player_id=player_id)
+                self._persist_finished_record(game, moves=created_moves, reason="exit_68", player_id=player_id)
                 self._mark_finished_nonactive(game)
                 try:
                     summary = collect_game_summary(game)
@@ -585,14 +637,14 @@ class GameEntryManager:
                     status="finished",
                     message=f"Вихід через 68. Гра завершена. {analysis}",
                     six_count=0,
-                    moves=[self._serialize_move(mv, player_id=player_id)],
+                    moves=self._serialize_moves(created_moves, player_id=player_id),
                 )
 
             return EntryStepResult(
                 status="single",
                 message="Хід виконано.",
                 six_count=0,
-                moves=[self._serialize_move(mv, player_id=player_id)],
+                moves=self._serialize_moves(created_moves, player_id=player_id),
             )
 
         # fallback
