@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from time import sleep
 from typing import List, Optional, Dict, Any
 from django.utils import timezone
-
+import random
 from django.db import transaction
 from django.db.models import Max
 
@@ -40,6 +40,16 @@ class GameEntryManager:
       - финиш только через 68; при недолетах идём до 72, падаем и продолжаем остаток;
       - верхний ряд (62–72), частные случаи — пошагово.
     """
+    # Messages shown while we wait for the very first 6
+    START_WAIT_MESSAGES = [
+        "Try again! We need a 6.",
+        "Not a six yet — roll again 🎲",
+        "Close, but not 6. One more time!",
+        "Almost there. Throw the dice again!",
+        "No 6 this time. Keep rolling!",
+        "Ще не шістка — кидаймо ще!",
+        "Потрібна шістка для старту. Спробуйте знову.",
+    ]
 
     EVENT_NORMAL = getattr(getattr(Move, "EventType", object), "NORMAL", "NORMAL")
 
@@ -56,6 +66,12 @@ class GameEntryManager:
         ("snake", "ladder"),
         ("snakeTo", "ladderTo"),
     )
+
+    def _wait_six_msg(self, rolled: int) -> str:
+        """Pick a random 'waiting for first six' message."""
+        msg = random.choice(self.START_WAIT_MESSAGES)
+        # You can include the rolled value if you like:
+        return msg.replace("{rolled}", str(rolled))
 
     def _create_moves_with_chain(
             self,
@@ -85,7 +101,7 @@ class GameEntryManager:
             pre_rule = int(final_cell)
 
         # only create the step move if it actually moves
-        if int(from_cell) != int(pre_rule):
+        if chain and int(from_cell) != int(pre_rule):
             img_rel_step = normalize_image_relpath(get_cell_image_name(pre_rule))
             created.append(
                 Move.objects.create(
@@ -358,7 +374,7 @@ class GameEntryManager:
           - НЕ применяем змей/лестниц на промежуточных клетках (только считаем шаги).
           - Исключение: если по пути попали ровно на 72 — сразу применяем её правило и продолжаем остаток.
           - По завершении шагов применяем правила ТОЛЬКО для конечной клетки (остановки): _resolve_full(...).
-          - Если по пути попали ровно на 68 — немедленный выход.
+          - Завершаем игру ТОЛЬКО если итоговая клетка (после правил) == 68.
         Возвращает: (final_cell, chain_list, hit_exit)
         """
         pos = int(start_cell)
@@ -368,10 +384,11 @@ class GameEntryManager:
         for _ in range(int(steps)):
             pos += 1
 
-            # мгновенный выход, если достигли 68 внутри хода
-            if pos == self.EXIT_CELL:
-                hit_exit = True
-                return pos, total_chain, hit_exit
+            # ⚠️ УБРАНО: немедленное завершение при проходе через 68.
+            # Раньше здесь было:
+            # if pos == self.EXIT_CELL:
+            #     hit_exit = True
+            #     return pos, total_chain, hit_exit
 
             # спец-правило 72: сразу применяем и продолжаем
             if pos == self.BOARD_MAX:
@@ -385,6 +402,7 @@ class GameEntryManager:
         if end_chain:
             total_chain.extend(end_chain)
 
+        # Завершение — только если ОСТАНОВИЛИСЬ на 68
         if int(final_pos) == self.EXIT_CELL:
             hit_exit = True
 
@@ -440,7 +458,13 @@ class GameEntryManager:
         # A) старт: нужна 6
         if at_start and not series_active:
             if rolled != 6:
-                return EntryStepResult(status="ignored", message="Для входу потрібна шістка.", six_count=0, moves=[])
+                return EntryStepResult(
+                    status="ignored",
+                    message=self._wait_six_msg(rolled=rolled),
+                    six_count=0,
+                    moves=[],
+                )
+
             move_no = self._next_move_number(game)
             final_cell, chain, hit_exit = self._walk_n_steps(0, 6)
 
