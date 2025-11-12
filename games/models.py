@@ -174,6 +174,7 @@ class Move(models.Model):
         LADDER = 'ladder', 'Стрела/лестница'
         BONUS = 'bonus', 'Бонус'
         PENALTY = 'penalty', 'Штраф'
+        LONG_MOVE = 'long_move', 'Довгий хід (4+ шісток)'
         NONE = 'none'
         QUEUED = 'queued'
         CARD_SENT = 'card_sent'
