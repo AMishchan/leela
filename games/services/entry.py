@@ -13,7 +13,6 @@ from games.services.images import normalize_image_relpath, image_url_from_board_
 from games.services.game_summary import collect_game_summary, render_summary_prompt
 from games.services.openai_client import OpenAIClient
 from games.utils import get_payment_config
-from games.models import PaymentStatus
 
 
 @dataclass
@@ -562,7 +561,7 @@ class GameEntryManager:
     def apply_roll(self, game: Game, rolled: int, player_id: Optional[int] = None) -> EntryStepResult:
         game = Game.objects.select_for_update().get(pk=game.pk)
 
-        if game.payment_status != PaymentStatus.PAID:
+        if game.payment_status != Game.PaymentStatus.PAID:
             non_hold_moves = Move.objects.filter(game=game, on_hold=False).count()
             if non_hold_moves > 2:
                 payment_url, payment_msg = get_payment_config()

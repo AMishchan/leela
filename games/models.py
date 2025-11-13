@@ -8,10 +8,6 @@ from django.utils import timezone
 from django.db.models import Q
 from players.models import Player
 
-class PaymentStatus(models.TextChoices):
-    NOT_PAID = 'not_paid', 'Не оплачено'
-    PAID = 'paid', 'Оплачено'
-
 class InteractionState(models.TextChoices):
     IDLE = 'idle', 'Свободно'
     PROCESSING_QUEUE = 'processing_queue', 'Раздаём очередь'
@@ -24,6 +20,11 @@ class QAStatus(models.TextChoices):
     ANSWERED = 'answered', 'Отвечено'
 
 class Game(models.Model):
+
+    class PaymentStatus(models.TextChoices):
+        NOT_PAID = 'not_paid', 'Не оплачено'
+        PAID = 'paid', 'Оплачено'
+
     class Status(models.TextChoices):
         ACTIVE = 'active', 'Активна'
         PAUSED = 'paused', 'Пауза'
