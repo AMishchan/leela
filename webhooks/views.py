@@ -4,7 +4,8 @@ from threading import Thread
 from games.services.tg_send import send_moves_sequentially
 from players.models import Player
 from games.services.entry import GameEntryManager
-from games.services.tg_send import send_dice  # импорт
+from games.services.tg_send import send_dice
+from games.services.tg_send import send_text_message
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse, HttpResponseNotAllowed
 from games.models import Move, Game
@@ -16,6 +17,7 @@ from games.services.images import image_url_from_board_name
 from games.services.qa_queue import on_turn_finished_with_series
 from django.utils import timezone
 import requests
+from games.utils import get_payment_config
 
 
 # Where to dump webhook payloads
@@ -138,6 +140,26 @@ def telegram_dice_webhook(request):
 
     # --- Пытаемся возобновить активную игру ДО дальнейшей логики ---
     game = Game.resume_last(player=player)
+
+    # --- Paywall-флаг (будем использовать ниже, перед обработкой кубика) ---
+    payment_required = False
+
+    if game and getattr(game, "payment_status", None) != Game.PaymentStatus.PAID:
+        non_hold_moves = Move.objects.filter(game=game, on_hold=False).count()
+        if non_hold_moves > 2:
+            payment_url, payment_msg = get_payment_config()
+
+            # Срабатываем ТОЛЬКО на бросок кубика, не на ответы / обычные сообщения
+            if payment_url and dice_value is not None:
+                bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+                if bot_token:
+                    text = payment_msg or "Щоб продовжити гру, потрібно оформити оплату за посиланням нижче 👇"
+                    text = f"{text}\n{payment_url}"
+                    # наш хелпер для простого сообщения в чат
+                    send_text_message(bot_token, chat_id, text)
+
+            payment_required = True
+
 
     # === НОВОЕ: это ответ на наш ForceReply? -> сохраняем в Move ===
     # === Ответ на наш ForceReply? -> сохраняем ответ и (если есть) шлём СЛЕДУЮЩУЮ карточку ===
@@ -292,6 +314,14 @@ def telegram_dice_webhook(request):
             "ok": True, "status": "awaiting_answer",
             "message": "Будь ласка, дайте відповідь на попередній хід перед наступним кидком.",
             "pending_move_id": pending.id,
+        })
+
+    # Если требуется оплата — не даём обработать новый бросок кубика
+    if dice_value is not None and payment_required:
+        return JsonResponse({
+            "ok": True,
+            "status": "payment_required",
+            "message": "Для продовження гри потрібна оплата. Посилання надіслано в чат.",
         })
 
     # --- Пришёл кубик — играем ход ---

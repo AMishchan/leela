@@ -255,3 +255,50 @@ def send_quiz(
             return {"ok": False, "status_code": r.status_code, "text": r.text}
     except requests.RequestException as e:
         return {"ok": False, "error": "request_exception", "detail": str(e)}
+
+
+def send_text_message(
+    token: Optional[str],
+    chat_id: int | str,
+    text: str,
+    *,
+    parse_mode: Optional[str] = None,          # "Markdown", "HTML" — если нужно
+    disable_notification: bool = False,
+    reply_to_message_id: Optional[int] = None,
+    allow_sending_without_reply: bool = True,
+    message_thread_id: Optional[int] = None,   # для тем/топиков
+    timeout: int = DEFAULT_TIMEOUT,
+) -> Dict[str, Any]:
+    """
+    Отправка простого текстового сообщения в чат.
+    Удобный обёртка над sendMessage для любых сервисных текстов (оплата и т.п.).
+    """
+    token = token or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return {"ok": False, "error": "bot_token_not_set"}
+
+    payload: Dict[str, Any] = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_notification": disable_notification,
+        "allow_sending_without_reply": allow_sending_without_reply,
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    if reply_to_message_id is not None:
+        payload["reply_to_message_id"] = reply_to_message_id
+    if message_thread_id is not None:
+        payload["message_thread_id"] = message_thread_id
+
+    try:
+        r = requests.post(
+            TG_API.format(token=token, method="sendMessage"),
+            json=payload,
+            timeout=timeout,
+        )
+        try:
+            return r.json()
+        except Exception:
+            return {"ok": False, "status_code": r.status_code, "text": r.text}
+    except requests.RequestException as e:
+        return {"ok": False, "error": "request_exception", "detail": str(e)}
