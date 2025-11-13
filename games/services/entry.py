@@ -73,9 +73,7 @@ class GameEntryManager:
     # -------------------------------
     # Сообщение о финише (без рекурсии и переменных вне области видимости)
     def _finish_message(self, cell: int, analysis: str = "") -> str:
-        if int(cell) == self.FINISH_CELL:
-            base = "Фініш на 72. Гра завершена."
-        elif int(cell) == self.EXIT_CELL:
+        if int(cell) == self.EXIT_CELL:
             base = "Вихід через 68. Гра завершена."
         else:
             base = "Гра завершена."
@@ -574,8 +572,8 @@ class GameEntryManager:
         # --- НОВОЕ: строгая логика верхнего ряда (после 68) ---
         # Если уже прошли 68 (т.е. стоим на 69..71),
         # и бросок больше оставшегося количества клеток до 72 — стоим и просим переброс.
-        if current_cell > self.EXIT_CELL:
-            remaining = self.BOARD_MAX - current_cell  # 72 - позиция
+        remaining = self.BOARD_MAX - current_cell  # 72 - позиция
+        if current_cell > self.EXIT_CELL or current_cell + rolled > self.BOARD_MAX:
             if rolled > remaining:
                 return EntryStepResult(
                     status="ignored",
