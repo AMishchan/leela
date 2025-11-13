@@ -43,6 +43,7 @@ class Game(models.Model):
     current_cell = models.IntegerField('Текущая клетка', default=0)
     current_six_number = models.IntegerField('Количество выпавших шестерок на данный момент', default=0)
     last_move_number = models.IntegerField('№ последнего хода', default=0)
+    user_game_intention= models.TextField('Игровое намерение пользователя', blank=True)
 
     meta = models.JSONField('Метаданные', default=dict, blank=True)
 

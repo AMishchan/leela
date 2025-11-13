@@ -45,6 +45,7 @@ def start_game_endpoint(request):
             status=Game.Status.ACTIVE,
             is_active=True,
             current_cell=0,
+            user_game_intention=payload.get("user_game_intention", "no_intention"),
             current_six_number=0,
             game_type="default",
             game_name=f"Game {now():%Y-%m-%d %H:%M:%S}",
