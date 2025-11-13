@@ -69,7 +69,7 @@ class MoveInline(admin.TabularInline):
 # ---------- карточка игры ----------
 @admin.register(Game)
 class GameAdmin(admin.ModelAdmin):
-    list_display = ('id', 'player', 'game_type', 'game_name', 'status', 'is_active',
+    list_display = ('id', 'player', 'user_game_intention', 'game_type', 'game_name', 'status', 'is_active',
                     'last_move_number', 'current_cell', 'started_at', 'updated_at')
     list_filter = ('status', 'is_active', 'game_type')
     search_fields = ('id', 'player__email', 'player__telegram_username', 'game_name')
