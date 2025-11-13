@@ -12,6 +12,7 @@ from games.services.board import resolve_chain, get_cell_image_name
 from games.services.images import normalize_image_relpath, image_url_from_board_name
 from games.services.game_summary import collect_game_summary, render_summary_prompt
 from games.services.openai_client import OpenAIClient
+from games.utils import get_payment_config
 
 
 @dataclass
@@ -559,6 +560,17 @@ class GameEntryManager:
     @transaction.atomic
     def apply_roll(self, game: Game, rolled: int, player_id: Optional[int] = None) -> EntryStepResult:
         game = Game.objects.select_for_update().get(pk=game.pk)
+
+        if game.payment_status != Game.PaymentStatus.PAID:
+            non_hold_moves = Move.objects.filter(game=game, on_hold=False).count()
+            if non_hold_moves > 2:
+                payment_url, payment_msg = get_payment_config()
+                return EntryStepResult(
+                    status="ignored",
+                    message=f"{payment_msg}: {payment_url}",
+                    six_count=int(getattr(game, "current_six_number", 0) or 0),
+                    moves=[],
+                )
 
         current_cell = int(getattr(game, "current_cell", 0) or 0)
         six_count = int(getattr(game, "current_six_number", 0) or 0)

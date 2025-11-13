@@ -70,9 +70,9 @@ class MoveInline(admin.TabularInline):
 @admin.register(Game)
 class GameAdmin(admin.ModelAdmin):
     list_display = ('id', 'player', 'user_game_intention', 'game_type', 'game_name', 'status', 'is_active',
-                    'last_move_number', 'current_cell', 'started_at', 'updated_at')
-    list_filter = ('status', 'is_active', 'game_type')
-    search_fields = ('id', 'player__email', 'player__telegram_username', 'game_name')
+                    'last_move_number', 'current_cell', 'started_at', "payment_status", 'updated_at')
+    list_filter = ('status', 'is_active', 'game_type', "payment_status")
+    search_fields = ('id', 'player__email', 'player__telegram_username', 'game_name', "user_game_intention")
     readonly_fields = ('started_at', 'updated_at', 'finished_at', 'last_move_number')
     inlines = [MoveInline]
 
@@ -120,3 +120,16 @@ class MoveAdmin(admin.ModelAdmin):
     @admin.display(description="Остаться после 6")
     def on_hold_dot(self, obj: Move):
         return _dot(bool(getattr(obj, "on_hold", False)))
+
+
+from .models import Game, Move, GameSettings
+
+@admin.register(GameSettings)
+class GameSettingsAdmin(admin.ModelAdmin):
+    list_display = ('payment_url',)
+
+    def has_add_permission(self, request):
+        # Разрешаем создать только одну запись
+        if GameSettings.objects.exists():
+            return False
+        return super().has_add_permission(request)

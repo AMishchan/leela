@@ -8,6 +8,9 @@ from django.utils import timezone
 from django.db.models import Q
 from players.models import Player
 
+class PaymentStatus(models.TextChoices):
+    NOT_PAID = 'not_paid', 'Не оплачено'
+    PAID = 'paid', 'Оплачено'
 
 class InteractionState(models.TextChoices):
     IDLE = 'idle', 'Свободно'
@@ -44,6 +47,13 @@ class Game(models.Model):
     current_six_number = models.IntegerField('Количество выпавших шестерок на данный момент', default=0)
     last_move_number = models.IntegerField('№ последнего хода', default=0)
     user_game_intention= models.TextField('Игровое намерение пользователя', blank=True)
+    payment_status = models.CharField(
+        'Оплата',
+        max_length=16,
+        choices=PaymentStatus.choices,
+        default=PaymentStatus.NOT_PAID,
+        db_index=True,
+    )
 
     meta = models.JSONField('Метаданные', default=dict, blank=True)
 
@@ -259,3 +269,25 @@ class Move(models.Model):
         answer_text = models.TextField(blank=True, default='')
 
         created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+
+class GameSettings(models.Model):
+    payment_url = models.URLField(
+        'Ссылка для оплаты',
+        blank=True,
+        help_text='Эту ссылку отправляем игроку, когда нужно оплатить игру.'
+    )
+
+    payment_message = models.TextField(
+        'Сообщение об оплате',
+        blank=True,
+        default='Щоб продовжити гру, потрібно оформити оплату за посиланням нижче 👇',
+        help_text='Текст, который будет показан перед ссылкой на оплату.'
+    )
+
+    class Meta:
+        verbose_name = 'Настройки игры'
+        verbose_name_plural = 'Настройки игры'
+
+    def __str__(self):
+        return 'Настройки игры'
