@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leela
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: leela
+  template:
+    metadata:
+      labels:
+        app: leela
+    spec:
+      containers:
+      - name: leela
+        image: leelaacr.azurecr.io/leela:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DJANGO_SETTINGS_MODULE
+          value: leela.settings

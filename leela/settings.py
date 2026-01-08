@@ -22,7 +22,7 @@ load_dotenv()
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-^-tq%y$zcivpe_!&fv!r4e=om14x9!x$2ms$p*h8!jklznoct$'
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -54,6 +54,7 @@ REST_FRAMEWORK = {
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -124,7 +125,17 @@ USE_I18N = True
 
 USE_TZ = True
 
-ALLOWED_HOSTS = ["142.132.210.43", "localhost", "127.0.0.1", "::1"]
+ALLOWED_HOSTS = [
+    "142.132.210.43",
+    "leela-api.com",
+    "www.leela-api.com",
+    "api.leela-api.com",
+    "20.31.240.250",
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "::1",
+]
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
@@ -132,6 +143,7 @@ ALLOWED_HOSTS = ["142.132.210.43", "localhost", "127.0.0.1", "::1"]
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "static_collected"   # отдельная папка для collectstatic
 MEDIA_URL = "/media/"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 MEDIA_ROOT = BASE_DIR / "media"
 PROTECTED_MEDIA_ROOT= BASE_DIR / "var" / "protected"
 
@@ -144,7 +156,7 @@ BOARD_CELL_IMAGE_ROOT = BASE_DIR / "games" / "data/cards"
 # Какой URL-префикс будет у этих картинок (отдавай их как статику/медиа)
 BOARD_CELL_IMAGE_URL  = "/media/board_images"   # или "/static/board", как у тебя принято
 SITE_BASE_URL=os.getenv("SITE_BASE_URL")
-TELEGRAM_BOT_TOKEN = "8148401559:AAHz2_mRbVUThQZjO3HBvbcgPaEsoKlAEiU"
-PROTECTED_CARDS_DIR  = PROTECTED_MEDIA_ROOT / "cards"
-START_GAME_API_KEY="GQusW3rAW8qW3NcbMvJU7YyyjYhC9NNHBSqcCvjok4I"
+TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
+PROTECTED_CARDS_DIR = PROTECTED_MEDIA_ROOT / "cards"
+START_GAME_API_KEY=os.getenv("START_GAME_API_KEY")
 OPEN_AI_TOKEN=os.getenv("OPEN_AI_TOKEN")
