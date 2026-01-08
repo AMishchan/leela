@@ -127,6 +127,7 @@ USE_TZ = True
 
 ALLOWED_HOSTS = [
     "142.132.210.43",
+    "204.236.221.129",
     "leela-api.com",
     "www.leela-api.com",
     "api.leela-api.com",
